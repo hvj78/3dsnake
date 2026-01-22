@@ -44,7 +44,11 @@ const renderer = new Renderer(view);
 const backendUrlInput = document.getElementById("backendUrl") as HTMLInputElement;
 if (!backendUrlInput.value) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  backendUrlInput.value = `${proto}://${location.hostname || "localhost"}:8000/ws`;
+  const host = location.hostname || "localhost";
+  const isLocal = host === "localhost" || host === "127.0.0.1";
+  // If the frontend is served from the backend (Fly/prod), use same-origin /ws.
+  // If running Vite locally, default to the backend at :8000.
+  backendUrlInput.value = isLocal ? `${proto}://${host}:8000/ws` : `${proto}://${location.host}/ws`;
   if (location.port === "8000") backendUrlInput.value = `${proto}://${location.host}/ws`;
 }
 const roomIdInput = document.getElementById("roomId") as HTMLInputElement;
