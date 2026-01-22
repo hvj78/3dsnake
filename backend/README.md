@@ -22,7 +22,8 @@ uvicorn app.main:app --reload --port 8000
 
 Endpoints:
 
-- `http://localhost:8000/` (simple test page)
+- `http://localhost:8000/` (redirects to `/play/` if frontend is present)
 - `http://localhost:8000/play/` (serves `frontend/dist` if present)
+- `http://localhost:8000/backend` (simple backend test page)
 - `http://localhost:8000/healthz`
 - `ws://localhost:8000/ws`

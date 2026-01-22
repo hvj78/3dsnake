@@ -1,0 +1,22 @@
+# Fly.io app configuration
+# - Create the app name with: fly apps create <name>
+# - Then update `app` below (or let flyctl generate this file).
+
+app = "3dsnake"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "8080"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Single-server mode is enforced by setting the Machine count to 1:
+  #   fly scale count 1 -y
+  # Keeping min_machines_running at 0 allows scale-to-zero when idle.
+  min_machines_running = 0

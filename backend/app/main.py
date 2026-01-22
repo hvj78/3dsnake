@@ -8,6 +8,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from app.protocol import msg
 from app.rooms import RoomManager
@@ -18,7 +19,8 @@ rooms = RoomManager()
 
 _ROOT = Path(__file__).resolve().parents[2]
 _FRONTEND_DIST = _ROOT / "frontend" / "dist"
-if _FRONTEND_DIST.exists():
+FRONTEND_ENABLED = _FRONTEND_DIST.exists()
+if FRONTEND_ENABLED:
     app.mount("/play", StaticFiles(directory=str(_FRONTEND_DIST), html=True), name="play")
 
 
@@ -34,8 +36,7 @@ def healthz() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/")
-def index() -> HTMLResponse:
+def _backend_index_html() -> HTMLResponse:
     return HTMLResponse(
         """
 <!doctype html>
@@ -110,6 +111,20 @@ def index() -> HTMLResponse:
 </html>
 """.strip()
     )
+
+@app.get("/")
+def index() -> Response:
+    # In production containers we usually have a built frontend available.
+    # Redirecting keeps the public root as the game UI, while still leaving
+    # the backend test page accessible.
+    if FRONTEND_ENABLED:
+        return RedirectResponse(url="/play/", status_code=307)
+    return _backend_index_html()
+
+
+@app.get("/backend")
+def backend_index() -> HTMLResponse:
+    return _backend_index_html()
 
 
 @app.get("/play")
