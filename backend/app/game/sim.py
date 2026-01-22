@@ -184,7 +184,7 @@ def ensure_fruit_target(state: GameState) -> None:
 def tick(
     *,
     state: GameState,
-    inputs: dict[str, int],
+    inputs: dict[str, dict[str, int]],
     now_ms: int,
 ) -> None:
     n = state.settings.cube_n
@@ -212,8 +212,18 @@ def tick(
     for pid, s in state.snakes.items():
         if not s.alive:
             continue
-        t = inputs.get(pid, 0)
-        s.dir = turn(s.dir, t)
+        cmd = inputs.get(pid) or {}
+        if "dir" in cmd:
+            d = cmd.get("dir")
+            if d in (0, 1, 2, 3):
+                # Prevent instant 180° reversal (common snake rule) to avoid
+                # "disappearing" due to immediate self-bite into the neck.
+                if ((d + 2) % 4) != s.dir:
+                    s.dir = d  # type: ignore[assignment]
+        elif "turn" in cmd:
+            t = cmd.get("turn", 0)
+            if t in (-1, 0, 1):
+                s.dir = turn(s.dir, t)
 
         head = s.cells[0]
         next_head, new_dir = step_cell(head, s.dir, n)
@@ -309,4 +319,3 @@ def tick(
 
     ensure_fruit_target(state)
     state.tick += 1
-

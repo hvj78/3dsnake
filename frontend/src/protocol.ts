@@ -37,7 +37,7 @@ export type C2S =
   | Msg<"join", { name: string; roomId?: string }>
   | Msg<"set_settings", { cubeN: number; roundSeconds: number; tickRate: number }>
   | Msg<"ready", { ready: boolean }>
-  | Msg<"input", { inputs: Array<{ tick: number; turn: Turn }> }>
+  | Msg<"input", { inputs: Array<{ tick: number; dir?: Dir; turn?: Turn }> }>
   | Msg<"leave", {}>
   | Msg<"ping", { clientTimeMs: number }>;
 
@@ -49,4 +49,3 @@ export type S2C =
   | Msg<"end", { finalScores: Record<string, number> }>
   | Msg<"error", { code: string; message: string }>
   | Msg<"pong", { clientTimeMs: number; serverTimeMs: number }>;
-

@@ -19,7 +19,7 @@ class PlayerConn:
     name: str
     ws: WebSocket
     ready: bool = False
-    input_by_tick: dict[int, int] = field(default_factory=dict)
+    input_by_tick: dict[int, dict[str, int]] = field(default_factory=dict)
     last_ack_tick: int = -1
 
 
@@ -178,10 +178,10 @@ class Room:
                     final_scores = {pid: s.score for pid, s in g.snakes.items()}
                     msg_to_send = {"v": 1, "type": "end", "payload": {"finalScores": final_scores}}
                 else:
-                    inputs_for_tick: dict[str, int] = {}
+                    inputs_for_tick: dict[str, dict[str, int]] = {}
                     for pid, p in self.players.items():
-                        t = p.input_by_tick.pop(g.tick, 0)
-                        inputs_for_tick[pid] = t
+                        cmd = p.input_by_tick.pop(g.tick, {})
+                        inputs_for_tick[pid] = cmd
                         p.last_ack_tick = g.tick
 
                     tick(state=g, inputs=inputs_for_tick, now_ms=now)

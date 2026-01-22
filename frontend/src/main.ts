@@ -1,5 +1,5 @@
 import { NetClient } from "./net";
-import type { LobbyState, Turn } from "./protocol";
+import type { Dir, LobbyState } from "./protocol";
 import { Renderer } from "./render";
 import type { S2C } from "./protocol";
 
@@ -61,7 +61,7 @@ let ready = false;
 
 let lastServerTick = -1;
 let nextInputTick = 0;
-let pendingTurn: Turn = 0;
+let desiredDir: Dir | null = null;
 let tickRate = 12;
 let inputLoopStarted = false;
 
@@ -168,7 +168,7 @@ function wireUI() {
     ready = false;
     lastServerTick = -1;
     nextInputTick = 0;
-    pendingTurn = 0;
+    desiredDir = null;
     lastJoined = null;
     lastLobby = null;
     lastStart = null;
@@ -285,12 +285,12 @@ function wireUI() {
 
 function wireInput() {
   window.addEventListener("keydown", (ev) => {
-    if (ev.key === "ArrowLeft" || ev.key.toLowerCase() === "a") pendingTurn = -1;
-    if (ev.key === "ArrowRight" || ev.key.toLowerCase() === "d") pendingTurn = 1;
-  });
-  window.addEventListener("keyup", (ev) => {
-    if (ev.key === "ArrowLeft" || ev.key.toLowerCase() === "a") pendingTurn = 0;
-    if (ev.key === "ArrowRight" || ev.key.toLowerCase() === "d") pendingTurn = 0;
+    const k = ev.key.toLowerCase();
+    // Screen-relative directions: up/down/left/right on the currently viewed face.
+    if (ev.key === "ArrowUp" || k === "w") desiredDir = 0;
+    if (ev.key === "ArrowRight" || k === "d") desiredDir = 1;
+    if (ev.key === "ArrowDown" || k === "s") desiredDir = 2;
+    if (ev.key === "ArrowLeft" || k === "a") desiredDir = 3;
   });
 }
 
@@ -306,7 +306,15 @@ function startInputLoop() {
     if (lastServerTick < 0) return;
     const t = nextInputTick;
     nextInputTick++;
-    net.sendTurn(t, pendingTurn);
+    if (desiredDir !== null) {
+      const myDir = myPlayerId ? lastState?.snakes.find((s) => s.playerId === myPlayerId)?.dir : null;
+      if (myDir != null) {
+        const opposite = (((desiredDir + 2) % 4) as Dir) === myDir;
+        if (!opposite) net.sendDir(t, desiredDir);
+      } else {
+        net.sendDir(t, desiredDir);
+      }
+    }
   };
   requestAnimationFrame(loop);
 }

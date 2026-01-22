@@ -1,4 +1,4 @@
-import type { C2S, LobbyState, S2C, Turn } from "./protocol";
+import type { C2S, Dir, LobbyState, S2C, Turn } from "./protocol";
 
 export type NetEvents = {
   onJoined: (data: Extract<S2C, { type: "joined" }>["payload"]) => void;
@@ -88,6 +88,12 @@ export class NetClient {
   sendTurn(tick: number, turn: Turn) {
     if (!this.isConnected()) return;
     const m: C2S = { v: 1, type: "input", payload: { inputs: [{ tick, turn }] } };
+    this.ws!.send(JSON.stringify(m));
+  }
+
+  sendDir(tick: number, dir: Dir) {
+    if (!this.isConnected()) return;
+    const m: C2S = { v: 1, type: "input", payload: { inputs: [{ tick, dir }] } };
     this.ws!.send(JSON.stringify(m));
   }
 }

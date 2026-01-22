@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { FruitState, SnakeState } from "./protocol";
-import { cellNormal, cellToLocalPos, dirToForwardOnFace, faceOfCell } from "./geometry";
+import { cellNormal, cellToLocalPos, faceOfCell } from "./geometry";
 
 function hashColor(id: string): any {
   let h = 2166136261;
@@ -10,6 +10,31 @@ function hashColor(id: string): any {
 }
 
 type FruitKind = FruitState["kind"];
+
+type Face = 0 | 1 | 2 | 3 | 4 | 5;
+type FaceBasis = { n: any; r: any; u: any };
+
+const X = new THREE.Vector3(1, 0, 0);
+const Y = new THREE.Vector3(0, 1, 0);
+const Z = new THREE.Vector3(0, 0, 1);
+
+const FACE_BASIS: Record<Face, FaceBasis> = {
+  0: { n: X.clone(), r: Z.clone().negate(), u: Y.clone() }, // +X
+  1: { n: X.clone().negate(), r: Z.clone(), u: Y.clone() }, // -X
+  2: { n: Y.clone(), r: X.clone(), u: Z.clone().negate() }, // +Y
+  3: { n: Y.clone().negate(), r: X.clone(), u: Z.clone() }, // -Y
+  4: { n: Z.clone(), r: X.clone(), u: Y.clone() }, // +Z
+  5: { n: Z.clone().negate(), r: X.clone().negate(), u: Y.clone() } // -Z
+};
+
+function clamp01(x: number) {
+  return Math.min(1, Math.max(0, x));
+}
+
+function smoothstep(edge0: number, edge1: number, x: number) {
+  const t = clamp01((x - edge0) / (edge1 - edge0));
+  return t * t * (3 - 2 * t);
+}
 
 function makeFruitTexture(kind: FruitKind): any {
   const size = 96;
@@ -119,6 +144,12 @@ export class Renderer {
   private fruitMaterials: Record<FruitKind, any>;
   private fruitById = new Map<string, any>();
 
+  private gridLines: any | null = null;
+  private cubeTint = new THREE.Color(0xdbe6ff);
+  private cubeOpacity = 0.12;
+  private tmpColor = new THREE.Color();
+  private followFace: Face | null = null;
+
   private tmpMat = new THREE.Matrix4();
   private tmpPos = new THREE.Vector3();
   private tmpQuat = new THREE.Quaternion();
@@ -149,11 +180,11 @@ export class Renderer {
 
     const cubeGeo = new THREE.BoxGeometry(this.halfSize * 2, this.halfSize * 2, this.halfSize * 2);
     const cubeMat = new THREE.MeshStandardMaterial({
-      color: 0xdbe6ff,
+      color: this.cubeTint,
       roughness: 0.2,
       metalness: 0.0,
       transparent: true,
-      opacity: 0.12,
+      opacity: this.cubeOpacity,
       depthWrite: false,
       side: THREE.DoubleSide
     });
@@ -165,6 +196,8 @@ export class Renderer {
       new THREE.LineBasicMaterial({ color: 0x334155, transparent: true, opacity: 0.55 })
     );
     this.cubeGroup.add(edges);
+
+    this.rebuildGrid();
 
     const segGeo = new THREE.BoxGeometry(1, 1, 1);
     const segMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1.0 });
@@ -190,6 +223,7 @@ export class Renderer {
     const loop = () => {
       requestAnimationFrame(loop);
       this.cubeGroup.quaternion.slerp(this.targetQuat, 0.12);
+      this.updateFruitVisuals();
       this.renderer.render(this.scene, this.camera);
     };
     loop();
@@ -209,6 +243,143 @@ export class Renderer {
     this.snakeMesh.instanceMatrix.needsUpdate = true;
     for (const sprite of this.fruitById.values()) this.fruitGroup.remove(sprite);
     this.fruitById.clear();
+    this.rebuildGrid();
+  }
+
+  private rebuildGrid() {
+    if (this.gridLines) {
+      this.cubeGroup.remove(this.gridLines);
+      try {
+        this.gridLines.geometry?.dispose?.();
+        this.gridLines.material?.dispose?.();
+      } catch {
+        // ignore
+      }
+      this.gridLines = null;
+    }
+
+    const n = this.cubeN;
+    if (n <= 1) return;
+
+    const half = this.halfSize;
+    const eps = half * 0.002;
+
+    const positions: number[] = [];
+    const push = (v: any) => {
+      positions.push(v.x, v.y, v.z);
+    };
+
+    const min = -half;
+    const max = half;
+
+    for (let face = 0 as Face; face < 6; face = (face + 1) as Face) {
+      const b = FACE_BASIS[face];
+      const origin = b.n.clone().multiplyScalar(half + eps);
+
+      for (let i = 1; i < n; i++) {
+        const t = min + (2 * half * i) / n;
+
+        // vertical line: x = t, y in [min..max]
+        push(origin.clone().add(b.r.clone().multiplyScalar(t)).add(b.u.clone().multiplyScalar(min)));
+        push(origin.clone().add(b.r.clone().multiplyScalar(t)).add(b.u.clone().multiplyScalar(max)));
+
+        // horizontal line: y = t, x in [min..max]
+        push(origin.clone().add(b.r.clone().multiplyScalar(min)).add(b.u.clone().multiplyScalar(t)));
+        push(origin.clone().add(b.r.clone().multiplyScalar(max)).add(b.u.clone().multiplyScalar(t)));
+      }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+
+    const camDist = this.camera.position.length ? this.camera.position.length() : 3.2;
+    const uNear = Math.max(0.1, camDist - half * 1.2);
+    const uFar = camDist + half * 2.4;
+
+    const mat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      uniforms: {
+        uNear: { value: uNear },
+        uFar: { value: uFar },
+        uColorNear: { value: new THREE.Color(0x475569) },
+        uColorFar: { value: new THREE.Color(0xcbd5e1) },
+        uAlphaNear: { value: 0.55 },
+        uAlphaFar: { value: 0.18 }
+      },
+      vertexShader: `
+        varying float vDist;
+        void main() {
+          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+          vDist = length(mvPosition.xyz);
+          gl_Position = projectionMatrix * mvPosition;
+        }
+      `,
+      fragmentShader: `
+        uniform float uNear;
+        uniform float uFar;
+        uniform vec3 uColorNear;
+        uniform vec3 uColorFar;
+        uniform float uAlphaNear;
+        uniform float uAlphaFar;
+        varying float vDist;
+        void main() {
+          float t = clamp((vDist - uNear) / max(0.0001, (uFar - uNear)), 0.0, 1.0);
+          t = t * t * (3.0 - 2.0 * t); // smoothstep
+          vec3 col = mix(uColorNear, uColorFar, t);
+          float a = mix(uAlphaNear, uAlphaFar, t);
+          gl_FragColor = vec4(col, a);
+        }
+      `
+    });
+
+    const lines = new THREE.LineSegments(geo, mat);
+    lines.renderOrder = 0.9;
+    this.gridLines = lines;
+    this.cubeGroup.add(lines);
+  }
+
+  private updateFruitVisuals() {
+    if (!this.fruitById.size) return;
+
+    const cam = this.camera;
+    const camPos = cam.position;
+
+    const camDist = camPos.length ? camPos.length() : 3.2;
+    const uNear = Math.max(0.1, camDist - this.halfSize * 1.2);
+    const uFar = camDist + this.halfSize * 2.8;
+
+    const q = this.cubeGroup.quaternion;
+    const tmpWorld = new THREE.Vector3();
+    const tmpNormal = new THREE.Vector3();
+    const tmpToCam = new THREE.Vector3();
+
+    for (const sprite of this.fruitById.values()) {
+      const mat = sprite.material;
+      if (!mat) continue;
+
+      sprite.getWorldPosition(tmpWorld);
+      const dist = camPos.distanceTo(tmpWorld);
+      const tDist = smoothstep(uNear, uFar, dist);
+
+      const nLocal = sprite.userData?.normalLocal;
+      if (nLocal) {
+        tmpNormal.copy(nLocal).applyQuaternion(q).normalize();
+        tmpToCam.copy(camPos).sub(tmpWorld).normalize();
+        const facing = tmpNormal.dot(tmpToCam); // >0 means face is towards camera
+        const through = smoothstep(0.25, -0.25, facing); // 0 front, 1 back
+
+        const alphaDist = 0.95 * (1 - 0.25 * tDist); // 0.95..~0.71
+        const alphaThrough = 1 - through * (0.55 + this.cubeOpacity * 0.5);
+        mat.opacity = clamp01(alphaDist * alphaThrough);
+
+        const tintMix = clamp01(through * 0.8 + tDist * 0.25);
+        if (mat.color) mat.color.copy(this.tmpColor.set(0xffffff)).lerp(this.cubeTint, tintMix);
+      } else {
+        mat.opacity = 0.9;
+        if (mat.color) mat.color.set(0xffffff);
+      }
+    }
   }
 
   update(snakes: SnakeState[], fruits: FruitState[], myPlayerId: string | null) {
@@ -244,18 +415,21 @@ export class Renderer {
       keep.add(f.id);
       let sprite = this.fruitById.get(f.id);
       if (!sprite) {
-        sprite = new THREE.Sprite(this.fruitMaterials[f.kind]);
+        sprite = new THREE.Sprite(this.fruitMaterials[f.kind].clone());
         sprite.renderOrder = 2;
         this.fruitGroup.add(sprite);
         this.fruitById.set(f.id, sprite);
-      } else if (sprite.material !== this.fruitMaterials[f.kind]) {
-        sprite.material = this.fruitMaterials[f.kind];
+        sprite.userData.kind = f.kind;
+      } else if (sprite.userData.kind !== f.kind) {
+        sprite.material.map = this.fruitMaterials[f.kind].map;
+        sprite.userData.kind = f.kind;
       }
 
       this.tmpPos.copy(cellToLocalPos(f.cell, n, this.halfSize));
       const normal = cellNormal(f.cell, n);
       this.tmpPos.add(normal.multiplyScalar(lift * 1.35));
       sprite.position.copy(this.tmpPos);
+      sprite.userData.normalLocal = normal.clone().normalize();
 
       const base = cellW * 0.92; // ~1 grid cell
       const s = base + cellW * (f.value / 40); // small size variance by value
@@ -269,26 +443,44 @@ export class Renderer {
 
     if (myPlayerId) {
       const me = snakes.find((s) => s.playerId === myPlayerId && s.alive && s.cells.length > 0);
-      if (me) this.setFollow(me.cells[0], me.dir);
+      if (me) {
+        const face = faceOfCell(me.cells[0], n) as Face;
+        if (this.followFace !== face) {
+          this.followFace = face;
+          this.setFollowFace(face);
+        }
+      }
     }
   }
 
-  setFollow(headCell: number, dir: 0 | 1 | 2 | 3) {
-    const n = this.cubeN;
-    const face = faceOfCell(headCell, n);
-    const localNormal = cellNormal(headCell, n).normalize();
-    const localForward = dirToForwardOnFace(face, dir).normalize();
+  private setFollowFace(face: Face) {
+    // Canonical face orientation:
+    // - face normal -> viewer (world +Z)
+    // - face "east"  -> screen right (world +X)
+    // This avoids a free "roll" degree of freedom that can cause annoying 180° flips
+    // when transitioning between faces.
+    const b = FACE_BASIS[face];
+    const localNormal = b.n.clone().normalize();
+    const localRight = b.r.clone().normalize();
 
     const worldZ = new THREE.Vector3(0, 0, 1);
-    const worldY = new THREE.Vector3(0, 1, 0);
+    const worldX = new THREE.Vector3(1, 0, 0);
 
     const q1 = new THREE.Quaternion().setFromUnitVectors(localNormal, worldZ);
-    const f1 = localForward.clone().applyQuaternion(q1);
-    const fproj = f1.sub(worldZ.clone().multiplyScalar(f1.dot(worldZ))).normalize();
-    const dot = THREE.MathUtils.clamp(fproj.dot(worldY), -1, 1);
-    const cross = new THREE.Vector3().crossVectors(fproj, worldY);
-    const sign = Math.sign(worldZ.dot(cross)) || 1;
-    const angle = Math.acos(dot) * sign;
+
+    const r1 = localRight.clone().applyQuaternion(q1);
+    // Project to XY plane (should already be close, but keep it robust).
+    r1.z = 0;
+    if (r1.lengthSq() < 1e-8) {
+      // Fallback: use local "up" if right is numerically unstable.
+      r1.copy(b.u).applyQuaternion(q1);
+      r1.z = 0;
+    }
+    r1.normalize();
+
+    const dot = THREE.MathUtils.clamp(r1.dot(worldX), -1, 1);
+    const crossZ = new THREE.Vector3().crossVectors(r1, worldX).dot(worldZ);
+    const angle = Math.atan2(crossZ, dot);
     const q2 = new THREE.Quaternion().setFromAxisAngle(worldZ, angle);
 
     this.targetQuat.copy(q2.multiply(q1));

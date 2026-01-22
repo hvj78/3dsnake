@@ -196,10 +196,17 @@ async def ws_endpoint(ws: WebSocket) -> None:
                         if not isinstance(item, dict):
                             continue
                         tick = _as_int(item.get("tick"))
-                        turn_value = _as_int(item.get("turn"))
-                        if tick is None or turn_value not in (-1, 0, 1):
+                        if tick is None:
                             continue
-                        room.players[player.player_id].input_by_tick[tick] = turn_value
+
+                        dir_value = _as_int(item.get("dir"))
+                        if dir_value in (0, 1, 2, 3):
+                            room.players[player.player_id].input_by_tick[tick] = {"dir": dir_value}
+                            continue
+
+                        turn_value = _as_int(item.get("turn"))
+                        if turn_value in (-1, 0, 1):
+                            room.players[player.player_id].input_by_tick[tick] = {"turn": turn_value}
                 continue
 
     except WebSocketDisconnect:
