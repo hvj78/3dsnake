@@ -454,35 +454,71 @@ export class Renderer {
   }
 
   private setFollowFace(face: Face) {
-    // Canonical face orientation:
-    // - face normal -> viewer (world +Z)
-    // - face "east"  -> screen right (world +X)
-    // This avoids a free "roll" degree of freedom that can cause annoying 180° flips
-    // when transitioning between faces.
+    // Bring the active face to the front (+Z) while picking a roll (0/90/180/270)
+    // that minimizes rotation relative to the current view. This avoids occasional
+    // annoying 180° spins on some face transitions.
     const b = FACE_BASIS[face];
-    const localNormal = b.n.clone().normalize();
-    const localRight = b.r.clone().normalize();
+    const canonical = new THREE.Matrix4().makeBasis(b.r, b.u, b.n).transpose();
+    const qBase = new THREE.Quaternion().setFromRotationMatrix(canonical);
 
-    const worldZ = new THREE.Vector3(0, 0, 1);
-    const worldX = new THREE.Vector3(1, 0, 0);
+    const current = this.cubeGroup.quaternion;
+    const best = new THREE.Quaternion();
+    const cand = new THREE.Quaternion();
+    let bestDot = -1;
 
-    const q1 = new THREE.Quaternion().setFromUnitVectors(localNormal, worldZ);
-
-    const r1 = localRight.clone().applyQuaternion(q1);
-    // Project to XY plane (should already be close, but keep it robust).
-    r1.z = 0;
-    if (r1.lengthSq() < 1e-8) {
-      // Fallback: use local "up" if right is numerically unstable.
-      r1.copy(b.u).applyQuaternion(q1);
-      r1.z = 0;
+    for (let k = 0; k < 4; k++) {
+      const qRoll = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), (k * Math.PI) / 2);
+      cand.copy(qRoll).multiply(qBase);
+      const d = Math.abs(current.dot(cand));
+      if (d > bestDot) {
+        bestDot = d;
+        best.copy(cand);
+      }
     }
-    r1.normalize();
 
-    const dot = THREE.MathUtils.clamp(r1.dot(worldX), -1, 1);
-    const crossZ = new THREE.Vector3().crossVectors(r1, worldX).dot(worldZ);
-    const angle = Math.atan2(crossZ, dot);
-    const q2 = new THREE.Quaternion().setFromAxisAngle(worldZ, angle);
+    // Ensure slerp takes the shortest path (q and -q are the same rotation).
+    if (current.dot(best) < 0) best.set(-best.x, -best.y, -best.z, -best.w);
+    this.targetQuat.copy(best);
+  }
 
-    this.targetQuat.copy(q2.multiply(q1));
+  // Map a screen-relative direction (up/right/down/left) into the face-local Dir
+  // under the current cube orientation, so controls stay consistent even if the
+  // face has a different roll.
+  mapScreenDirToFaceDir(screenDir: 0 | 1 | 2 | 3): 0 | 1 | 2 | 3 | null {
+    if (this.followFace == null) return null;
+    const face = this.followFace;
+    const b = FACE_BASIS[face];
+    const q = this.cubeGroup.quaternion;
+
+    const targets = [
+      new THREE.Vector3(0, 1, 0), // up
+      new THREE.Vector3(1, 0, 0), // right
+      new THREE.Vector3(0, -1, 0), // down
+      new THREE.Vector3(-1, 0, 0) // left
+    ];
+    const target = targets[screenDir];
+
+    const dirs = [
+      b.u.clone(), // north
+      b.r.clone(), // east
+      b.u.clone().negate(), // south
+      b.r.clone().negate() // west
+    ];
+
+    let bestDir: 0 | 1 | 2 | 3 = 0;
+    let bestDot = -1;
+    for (let i = 0; i < 4; i++) {
+      const v = dirs[i].applyQuaternion(q);
+      v.z = 0;
+      const len2 = v.lengthSq();
+      if (len2 < 1e-8) continue;
+      v.multiplyScalar(1 / Math.sqrt(len2));
+      const d = v.dot(target);
+      if (d > bestDot) {
+        bestDot = d;
+        bestDir = i as 0 | 1 | 2 | 3;
+      }
+    }
+    return bestDir;
   }
 }

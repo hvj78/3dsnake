@@ -307,13 +307,13 @@ function startInputLoop() {
     const t = nextInputTick;
     nextInputTick++;
     if (desiredDir !== null) {
+      const mapped = renderer.mapScreenDirToFaceDir(desiredDir);
+      const dirToSend = (mapped ?? desiredDir) as Dir;
       const myDir = myPlayerId ? lastState?.snakes.find((s) => s.playerId === myPlayerId)?.dir : null;
       if (myDir != null) {
-        const opposite = (((desiredDir + 2) % 4) as Dir) === myDir;
-        if (!opposite) net.sendDir(t, desiredDir);
-      } else {
-        net.sendDir(t, desiredDir);
-      }
+        const opposite = (((dirToSend + 2) % 4) as Dir) === myDir;
+        if (!opposite) net.sendDir(t, dirToSend);
+      } else net.sendDir(t, dirToSend);
     }
   };
   requestAnimationFrame(loop);
