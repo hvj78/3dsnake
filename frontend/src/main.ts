@@ -75,6 +75,35 @@ let lastStart: Extract<S2C, { type: "start" }>["payload"] | null = null;
 let lastState: Extract<S2C, { type: "state" }>["payload"] | null = null;
 let lastEnd: Extract<S2C, { type: "end" }>["payload"] | null = null;
 let lastError: Extract<S2C, { type: "error" }>["payload"] | null = null;
+let playerColors: Record<string, number> = {};
+let connectNow: (() => void) | null = null;
+
+const PALETTE_8: number[] = [
+  0x16a34a, // green
+  0xdc2626, // red
+  0x2563eb, // blue
+  0xf59e0b, // orange
+  0x7c3aed, // purple
+  0xdb2777, // magenta
+  0x0d9488, // teal
+  0x334155 // slate/gray
+];
+const PALETTE_NAMES: Record<number, string> = {
+  0x16a34a: "Green",
+  0xdc2626: "Red",
+  0x2563eb: "Blue",
+  0xf59e0b: "Orange",
+  0x7c3aed: "Purple",
+  0xdb2777: "Magenta",
+  0x0d9488: "Teal",
+  0x334155: "Gray"
+};
+
+function rebuildPlayerColorsFromLobby(l: LobbyState | null) {
+  if (!l) return;
+  playerColors = {};
+  for (const p of l.players) playerColors[p.playerId] = p.color;
+}
 
 function setStatus(text: string) {
   statusEl.textContent = text;
@@ -113,6 +142,44 @@ function wireUI() {
   const logState = document.getElementById("logState") as HTMLInputElement;
   const logRaw = document.getElementById("logRaw") as HTMLInputElement;
   const logMax = document.getElementById("logMax") as HTMLInputElement;
+  const snakeColorEl = document.getElementById("snakeColor") as HTMLDivElement;
+
+  const populateColorOptions = () => {
+    const taken = new Set<number>();
+    if (lobby) {
+      for (const p of lobby.players) {
+        if (p.playerId !== myPlayerId) taken.add(p.color);
+      }
+    }
+    const myColor = lobby?.players.find((p) => p.playerId === myPlayerId)?.color;
+
+    snakeColorEl.innerHTML = "";
+    for (const c of PALETTE_8) {
+      const disabled = taken.has(c) && c !== myColor;
+      const btn = document.createElement("div");
+      btn.className = `swatch${c === myColor ? " selected" : ""}`;
+      btn.setAttribute("role", "button");
+      btn.setAttribute("tabindex", disabled ? "-1" : "0");
+      btn.setAttribute("aria-disabled", disabled ? "true" : "false");
+      btn.title = `${PALETTE_NAMES[c] ?? "Color"} (#${c.toString(16).padStart(6, "0")})`;
+      btn.style.background = `#${c.toString(16).padStart(6, "0")}`;
+
+      const send = () => {
+        if (disabled) return;
+        net.sendColor(c);
+      };
+      btn.onclick = send;
+      btn.onkeydown = (ev) => {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
+          send();
+        }
+      };
+
+      snakeColorEl.appendChild(btn);
+    }
+  };
+  populateColorOptions();
 
   logState.onchange = () => (logStateEnabled = !!logState.checked);
   logRaw.onchange = () => (logRawEnabled = !!logRaw.checked);
@@ -161,7 +228,7 @@ function wireUI() {
     copyToClipboard(rid);
   };
 
-  connectBtn.onclick = () => {
+  connectNow = () => {
     const url = (document.getElementById("backendUrl") as HTMLInputElement).value.trim();
     const name = (document.getElementById("name") as HTMLInputElement).value.trim() || "Player";
     const roomId = roomIdInput.value.trim();
@@ -207,23 +274,31 @@ function wireUI() {
         lobby = data.lobby;
         lastJoined = data;
         lastLobby = data.lobby;
+        rebuildPlayerColorsFromLobby(lobby);
         roomIdInput.value = data.roomId;
         location.hash = `#${data.roomId}`;
         readyBtn.disabled = false;
         applySettingsBtn.disabled = !isHost;
+        populateColorOptions();
         renderLobby();
       },
       onLobby: (l) => {
         lobby = l;
         lastLobby = l;
+        rebuildPlayerColorsFromLobby(lobby);
         applySettingsBtn.disabled = !myPlayerId || lobby.hostId !== myPlayerId;
+        populateColorOptions();
         renderLobby();
       },
       onStart: (data) => {
         renderer.setCubeN(data.settings.cubeN);
         tickRate = data.settings.tickRate;
         lastStart = data;
+        playerColors = {};
+        for (const p of data.players) playerColors[p.playerId] = p.color;
         if (!inputLoopStarted) startInputLoop();
+        // Ensure key events go to the game area (esp. on Safari / when a form element has focus).
+        view.focus?.();
         setStatus(
           [
             `room: ${lobby?.roomId ?? "?"}`,
@@ -241,7 +316,7 @@ function wireUI() {
         lastServerTick = data.tick;
         nextInputTick = Math.max(nextInputTick, data.tick + 1);
         lastState = data;
-        renderer.update(data.snakes, data.fruits, myPlayerId);
+        renderer.update(data.snakes, data.fruits, myPlayerId, playerColors);
 
         const scores = Object.entries(data.scores)
           .sort((a, b) => b[1] - a[1])
@@ -272,11 +347,13 @@ function wireUI() {
       }
     });
   };
+  connectBtn.onclick = connectNow;
 
   readyBtn.onclick = () => {
     ready = !ready;
     readyBtn.textContent = ready ? "Unready" : "Ready";
     net.sendReady(ready);
+    view.focus?.();
   };
 
   applySettingsBtn.onclick = () => {
@@ -288,14 +365,28 @@ function wireUI() {
 }
 
 function wireInput() {
-  window.addEventListener("keydown", (ev) => {
+  const handler = (ev: KeyboardEvent) => {
     const k = ev.key.toLowerCase();
     // Screen-relative directions: up/down/left/right on the currently viewed face.
-    if (ev.key === "ArrowUp" || k === "w") desiredDir = 0;
-    if (ev.key === "ArrowRight" || k === "d") desiredDir = 1;
-    if (ev.key === "ArrowDown" || k === "s") desiredDir = 2;
-    if (ev.key === "ArrowLeft" || k === "a") desiredDir = 3;
-  });
+    if (ev.key === "ArrowUp" || k === "w") {
+      ev.preventDefault();
+      desiredDir = 0;
+    }
+    if (ev.key === "ArrowRight" || k === "d") {
+      ev.preventDefault();
+      desiredDir = 1;
+    }
+    if (ev.key === "ArrowDown" || k === "s") {
+      ev.preventDefault();
+      desiredDir = 2;
+    }
+    if (ev.key === "ArrowLeft" || k === "a") {
+      ev.preventDefault();
+      desiredDir = 3;
+    }
+  };
+  // Capture phase improves reliability when an element handles/binds key events.
+  window.addEventListener("keydown", handler, { capture: true });
 }
 
 function startInputLoop() {
@@ -327,3 +418,11 @@ wireUI();
 wireInput();
 setStatus("disconnected");
 appendLog("log ready (use Pause / Copy debug if needed)");
+
+// Auto-connect when using the default room (helps projected / kiosk usage).
+if (roomIdInput.value.trim().toUpperCase() === "ABC123") {
+  // Give the UI a moment to render before connecting.
+  setTimeout(() => {
+    if (connectNow) connectNow();
+  }, 50);
+}

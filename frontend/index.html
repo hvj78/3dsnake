@@ -29,6 +29,7 @@
       }
       #view {
         position: relative;
+        outline: none;
       }
       canvas {
         display: block;
@@ -88,6 +89,37 @@
         font-size: 12px;
         resize: vertical;
       }
+      select {
+        width: 100%;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #c7cfdd;
+        background: #ffffff;
+        color: #0b1220;
+      }
+      .swatches {
+        display: grid;
+        grid-template-columns: repeat(8, 1fr);
+        gap: 8px;
+      }
+      .swatch {
+        height: 26px;
+        border-radius: 7px;
+        border: 2px solid rgba(0, 0, 0, 0.18);
+        cursor: pointer;
+        box-sizing: border-box;
+        position: relative;
+      }
+      .swatch[aria-disabled="true"] {
+        cursor: not-allowed;
+        opacity: 0.28;
+        filter: grayscale(0.6);
+      }
+      .swatch.selected {
+        outline: 3px solid rgba(0, 0, 0, 0.28);
+        outline-offset: 2px;
+        border-color: rgba(255, 255, 255, 0.75);
+      }
       .small {
         color: #40516b;
         font-size: 12px;
@@ -125,6 +157,9 @@
             <input id="roomId" placeholder="ABC123" />
             <button id="copyRoom" style="white-space: nowrap">Copy room</button>
           </div>
+          <div style="height: 8px"></div>
+          <div class="k">Snake color</div>
+          <div id="snakeColor" class="swatches" aria-label="Snake color"></div>
           <div style="height: 10px"></div>
           <div class="row">
             <button id="connect">Connect</button>
@@ -169,7 +204,7 @@
           <textarea id="log" rows="18" readonly></textarea>
         </div>
       </div>
-      <div id="view"></div>
+      <div id="view" tabindex="0"></div>
     </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
