@@ -85,6 +85,12 @@ export class NetClient {
     this.ws!.send(JSON.stringify(m));
   }
 
+  sendColor(color: number) {
+    if (!this.isConnected()) return;
+    const m = { v: 1, type: "set_color", payload: { color } };
+    this.ws!.send(JSON.stringify(m));
+  }
+
   sendTurn(tick: number, turn: Turn) {
     if (!this.isConnected()) return;
     const m: C2S = { v: 1, type: "input", payload: { inputs: [{ tick, turn }] } };

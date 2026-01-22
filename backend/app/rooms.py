@@ -19,6 +19,7 @@ class PlayerConn:
     name: str
     ws: WebSocket
     ready: bool = False
+    color: int = 0
     input_by_tick: dict[int, dict[str, int]] = field(default_factory=dict)
     last_ack_tick: int = -1
 
@@ -46,7 +47,7 @@ class Room:
             "roomId": self.room_id,
             "hostId": self.host_id,
             "players": [
-                {"playerId": p.player_id, "name": p.name, "ready": p.ready}
+                {"playerId": p.player_id, "name": p.name, "ready": p.ready, "color": p.color}
                 for p in sorted(self.players.values(), key=lambda x: x.player_id)
             ],
             "settings": {
@@ -139,7 +140,7 @@ class Room:
                     "startTick": 0,
                     "startServerTimeMs": start_time,
                     "players": [
-                        {"playerId": p.player_id, "name": p.name}
+                        {"playerId": p.player_id, "name": p.name, "color": p.color}
                         for p in sorted(self.players.values(), key=lambda x: x.player_id)
                     ],
                 },
@@ -239,6 +240,29 @@ class RoomManager:
         self.rooms: dict[str, Room] = {}
         self.lock = asyncio.Lock()
 
+    @staticmethod
+    def _palette() -> list[int]:
+        # 8 distinct snake colors (0xRRGGBB).
+        return [
+            0x16A34A,  # green
+            0xDC2626,  # red
+            0x2563EB,  # blue
+            0xF59E0B,  # orange
+            0x7C3AED,  # purple
+            0xDB2777,  # magenta
+            0x0D9488,  # teal
+            0x334155,  # slate/gray
+        ]
+
+    @classmethod
+    def _first_free_color(cls, room: Room) -> int:
+        taken = {p.color for p in room.players.values()}
+        for c in cls._palette():
+            if c not in taken:
+                return c
+        # If somehow all are taken (more than 8 players), fall back to first.
+        return cls._palette()[0]
+
     async def join(self, *, room_id: Optional[str], name: str, ws: WebSocket) -> tuple[Room, PlayerConn, bool]:
         async with self.lock:
             rid = room_id or new_room_id()
@@ -249,7 +273,8 @@ class RoomManager:
 
         async with room.lock:
             pid = new_player_id()
-            player = PlayerConn(player_id=pid, name=name, ws=ws)
+            color = self._first_free_color(room)
+            player = PlayerConn(player_id=pid, name=name, ws=ws, color=color)
             room.players[pid] = player
             if room.host_id is None:
                 room.host_id = pid

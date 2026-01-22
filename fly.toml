@@ -3,7 +3,7 @@
 # - Then update `app` below (or let flyctl generate this file).
 
 app = "3dsnake"
-primary_region = "iad"
+primary_region = "fra"
 
 [build]
   dockerfile = "Dockerfile"
@@ -20,3 +20,6 @@ primary_region = "iad"
   #   fly scale count 1 -y
   # Keeping min_machines_running at 0 allows scale-to-zero when idle.
   min_machines_running = 0
+
+[[vm]]
+  size = "performance-1x"

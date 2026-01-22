@@ -192,6 +192,22 @@ async def ws_endpoint(ws: WebSocket) -> None:
                 await room.broadcast(msg("lobby_state", {"lobby": room.lobby_state()}))
                 continue
 
+            if mtype == "set_color":
+                color = _as_int(payload.get("color"))
+                if color is None:
+                    continue
+                async with room.lock:
+                    if room.phase != "lobby":
+                        continue
+                    # Enforce unique selection among current lobby players.
+                    taken = {p.color for pid, p in room.players.items() if pid != player.player_id}
+                    if color in taken:
+                        await ws.send_json(msg("error", {"code": "color_taken", "message": "Color already taken"}))
+                        continue
+                    room.players[player.player_id].color = color
+                await room.broadcast(msg("lobby_state", {"lobby": room.lobby_state()}))
+                continue
+
             if mtype == "ready":
                 ready = bool(payload.get("ready"))
                 async with room.lock:

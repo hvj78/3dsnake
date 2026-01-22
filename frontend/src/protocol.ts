@@ -14,7 +14,7 @@ export type GameSettings = {
 export type LobbyState = {
   roomId: string;
   hostId: string | null;
-  players: Array<{ playerId: string; name: string; ready: boolean }>;
+  players: Array<{ playerId: string; name: string; ready: boolean; color: number }>;
   settings: { cubeN: number; roundSeconds: number; tickRate: number };
 };
 
@@ -44,7 +44,7 @@ export type C2S =
 export type S2C =
   | Msg<"joined", { playerId: string; roomId: string; isHost: boolean; lobby: LobbyState }>
   | Msg<"lobby_state", { lobby: LobbyState }>
-  | Msg<"start", { settings: GameSettings; seed: number; startTick: number; startServerTimeMs: number; players: Array<{ playerId: string; name: string }> }>
+  | Msg<"start", { settings: GameSettings; seed: number; startTick: number; startServerTimeMs: number; players: Array<{ playerId: string; name: string; color: number }> }>
   | Msg<"state", { tick: number; serverTimeMs: number; timerMsLeft: number; snakes: SnakeState[]; fruits: FruitState[]; scores: Record<string, number>; inputAck: Record<string, number> }>
   | Msg<"end", { finalScores: Record<string, number> }>
   | Msg<"error", { code: string; message: string }>

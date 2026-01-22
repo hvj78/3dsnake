@@ -137,6 +137,7 @@ export class Renderer {
   private cubeN = 24;
   private halfSize = 1;
 
+  private snakeOutlineMesh: any;
   private snakeMesh: any;
   private snakeCapacity = 50000;
 
@@ -144,13 +145,15 @@ export class Renderer {
   private fruitMaterials: Record<FruitKind, any>;
   private fruitById = new Map<string, any>();
 
-  private gridLines: any | null = null;
-  private cubeTint = new THREE.Color(0xdbe6ff);
-  private cubeOpacity = 0.12;
+  private gridMinor: any | null = null;
+  private gridMajor: any | null = null;
+  private cubeTint = new THREE.Color(0x8ea2ff);
+  private cubeOpacity = 0.10;
   private tmpColor = new THREE.Color();
   private followFace: Face | null = null;
 
   private tmpMat = new THREE.Matrix4();
+  private tmpMat2 = new THREE.Matrix4();
   private tmpPos = new THREE.Vector3();
   private tmpQuat = new THREE.Quaternion();
   private tmpScale = new THREE.Vector3();
@@ -200,11 +203,31 @@ export class Renderer {
     this.rebuildGrid();
 
     const segGeo = new THREE.BoxGeometry(1, 1, 1);
+    // Ensure base vertex colors exist (white), so instanced colors always show up.
+    // Some three.js shader paths multiply instanceColor with vertex color.
+    const posCount = segGeo.attributes.position.count;
+    const baseColors = new Float32Array(posCount * 3);
+    baseColors.fill(1);
+    segGeo.setAttribute("color", new THREE.BufferAttribute(baseColors, 3));
+    const outlineMat = new THREE.MeshBasicMaterial({
+      color: 0x0b1220,
+      transparent: true,
+      opacity: 0.18,
+      depthWrite: false
+    });
+    this.snakeOutlineMesh = new THREE.InstancedMesh(segGeo, outlineMat, this.snakeCapacity);
+    this.snakeOutlineMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.snakeOutlineMesh.count = 0;
+    this.snakeOutlineMesh.renderOrder = 0.95;
+    this.snakeOutlineMesh.frustumCulled = false;
+    this.cubeGroup.add(this.snakeOutlineMesh);
+
     const segMat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 1.0 });
     this.snakeMesh = new THREE.InstancedMesh(segGeo, segMat, this.snakeCapacity);
     this.snakeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.snakeMesh.count = 0;
     this.snakeMesh.renderOrder = 1;
+    this.snakeMesh.frustumCulled = false;
     this.cubeGroup.add(this.snakeMesh);
 
     this.fruitMaterials = {
@@ -239,6 +262,8 @@ export class Renderer {
 
   setCubeN(n: number) {
     this.cubeN = n;
+    this.snakeOutlineMesh.count = 0;
+    this.snakeOutlineMesh.instanceMatrix.needsUpdate = true;
     this.snakeMesh.count = 0;
     this.snakeMesh.instanceMatrix.needsUpdate = true;
     for (const sprite of this.fruitById.values()) this.fruitGroup.remove(sprite);
@@ -247,96 +272,150 @@ export class Renderer {
   }
 
   private rebuildGrid() {
-    if (this.gridLines) {
-      this.cubeGroup.remove(this.gridLines);
+    for (const grid of [this.gridMinor, this.gridMajor]) {
+      if (!grid) continue;
+      this.cubeGroup.remove(grid);
       try {
-        this.gridLines.geometry?.dispose?.();
-        this.gridLines.material?.dispose?.();
+        grid.geometry?.dispose?.();
+        grid.material?.dispose?.();
       } catch {
         // ignore
       }
-      this.gridLines = null;
     }
+    this.gridMinor = null;
+    this.gridMajor = null;
 
     const n = this.cubeN;
     if (n <= 1) return;
 
     const half = this.halfSize;
     const eps = half * 0.002;
-
-    const positions: number[] = [];
-    const push = (v: any) => {
-      positions.push(v.x, v.y, v.z);
-    };
-
     const min = -half;
     const max = half;
 
+    const minorEvery = n <= 26 ? 1 : n <= 40 ? 2 : 3;
+    const majorEvery = Math.max(4, 4 * minorEvery);
+
+    const minorPos: number[] = [];
+    const majorPos: number[] = [];
+    const minorNrm: number[] = [];
+    const majorNrm: number[] = [];
+
+    const pushSeg = (arrPos: number[], arrNrm: number[], a: any, b: any, nrm: any) => {
+      arrPos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      // one normal per vertex (2 verts)
+      arrNrm.push(nrm.x, nrm.y, nrm.z, nrm.x, nrm.y, nrm.z);
+    };
+
     for (let face = 0 as Face; face < 6; face = (face + 1) as Face) {
-      const b = FACE_BASIS[face];
-      const origin = b.n.clone().multiplyScalar(half + eps);
+      const basis = FACE_BASIS[face];
+      const origin = basis.n.clone().multiplyScalar(half + eps);
+      const nrm = basis.n.clone().normalize();
 
-      for (let i = 1; i < n; i++) {
+      for (let i = minorEvery; i < n; i += minorEvery) {
         const t = min + (2 * half * i) / n;
+        const isMajor = i % majorEvery === 0;
+        const pos = isMajor ? majorPos : minorPos;
+        const nrmArr = isMajor ? majorNrm : minorNrm;
 
-        // vertical line: x = t, y in [min..max]
-        push(origin.clone().add(b.r.clone().multiplyScalar(t)).add(b.u.clone().multiplyScalar(min)));
-        push(origin.clone().add(b.r.clone().multiplyScalar(t)).add(b.u.clone().multiplyScalar(max)));
-
-        // horizontal line: y = t, x in [min..max]
-        push(origin.clone().add(b.r.clone().multiplyScalar(min)).add(b.u.clone().multiplyScalar(t)));
-        push(origin.clone().add(b.r.clone().multiplyScalar(max)).add(b.u.clone().multiplyScalar(t)));
+        // vertical line: along u-axis at r=t
+        pushSeg(
+          pos,
+          nrmArr,
+          origin.clone().add(basis.r.clone().multiplyScalar(t)).add(basis.u.clone().multiplyScalar(min)),
+          origin.clone().add(basis.r.clone().multiplyScalar(t)).add(basis.u.clone().multiplyScalar(max)),
+          nrm
+        );
+        // horizontal line: along r-axis at u=t
+        pushSeg(
+          pos,
+          nrmArr,
+          origin.clone().add(basis.r.clone().multiplyScalar(min)).add(basis.u.clone().multiplyScalar(t)),
+          origin.clone().add(basis.r.clone().multiplyScalar(max)).add(basis.u.clone().multiplyScalar(t)),
+          nrm
+        );
       }
     }
 
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-
     const camDist = this.camera.position.length ? this.camera.position.length() : 3.2;
     const uNear = Math.max(0.1, camDist - half * 1.2);
-    const uFar = camDist + half * 2.4;
+    const uFar = camDist + half * 2.6;
 
-    const mat = new THREE.ShaderMaterial({
-      transparent: true,
-      depthWrite: false,
-      uniforms: {
-        uNear: { value: uNear },
-        uFar: { value: uFar },
-        uColorNear: { value: new THREE.Color(0x475569) },
-        uColorFar: { value: new THREE.Color(0xcbd5e1) },
-        uAlphaNear: { value: 0.55 },
-        uAlphaFar: { value: 0.18 }
-      },
-      vertexShader: `
-        varying float vDist;
-        void main() {
-          vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-          vDist = length(mvPosition.xyz);
-          gl_Position = projectionMatrix * mvPosition;
-        }
-      `,
-      fragmentShader: `
-        uniform float uNear;
-        uniform float uFar;
-        uniform vec3 uColorNear;
-        uniform vec3 uColorFar;
-        uniform float uAlphaNear;
-        uniform float uAlphaFar;
-        varying float vDist;
-        void main() {
-          float t = clamp((vDist - uNear) / max(0.0001, (uFar - uNear)), 0.0, 1.0);
-          t = t * t * (3.0 - 2.0 * t); // smoothstep
-          vec3 col = mix(uColorNear, uColorFar, t);
-          float a = mix(uAlphaNear, uAlphaFar, t);
-          gl_FragColor = vec4(col, a);
-        }
-      `
-    });
+    const makeGridMat = (colorNear: number, colorFar: number, alphaNear: number, alphaFar: number) =>
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        uniforms: {
+          uNear: { value: uNear },
+          uFar: { value: uFar },
+          uColorNear: { value: new THREE.Color(colorNear) },
+          uColorFar: { value: new THREE.Color(colorFar) },
+          uAlphaNear: { value: alphaNear * (1 - this.cubeOpacity * 0.6) },
+          uAlphaFar: { value: alphaFar * (1 - this.cubeOpacity * 0.6) },
+          uCubeOpacity: { value: this.cubeOpacity }
+        },
+        vertexShader: `
+          attribute vec3 aNormal;
+          varying float vDist;
+          varying float vFacing;
+          void main() {
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            vDist = length(mvPosition.xyz);
+            vec3 viewDir = normalize(-mvPosition.xyz);
+            vec3 nView = normalize(normalMatrix * aNormal);
+            vFacing = dot(nView, viewDir);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `,
+        fragmentShader: `
+          uniform float uNear;
+          uniform float uFar;
+          uniform vec3 uColorNear;
+          uniform vec3 uColorFar;
+          uniform float uAlphaNear;
+          uniform float uAlphaFar;
+          uniform float uCubeOpacity;
+          varying float vDist;
+          varying float vFacing;
+          void main() {
+            float t = clamp((vDist - uNear) / max(0.0001, (uFar - uNear)), 0.0, 1.0);
+            t = t * t * (3.0 - 2.0 * t);
 
-    const lines = new THREE.LineSegments(geo, mat);
-    lines.renderOrder = 0.9;
-    this.gridLines = lines;
-    this.cubeGroup.add(lines);
+            // Fade faces that are edge-on to reduce clutter.
+            float faceVis = smoothstep(0.02, 0.28, abs(vFacing));
+
+            // Extra fade when seen "through" the cube (back faces).
+            float through = smoothstep(0.25, -0.25, vFacing);
+            float throughFade = 1.0 - through * (0.62 + uCubeOpacity * 0.5);
+
+            vec3 col = mix(uColorNear, uColorFar, t);
+            float a = mix(uAlphaNear, uAlphaFar, t) * faceVis * throughFade;
+            gl_FragColor = vec4(col, a);
+          }
+        `
+      });
+
+    if (minorPos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(minorPos, 3));
+      geo.setAttribute("aNormal", new THREE.Float32BufferAttribute(minorNrm, 3));
+      const lines = new THREE.LineSegments(geo, makeGridMat(0x475569, 0xe6ecff, 0.22, 0.05));
+      lines.renderOrder = 0.9;
+      lines.frustumCulled = false;
+      this.gridMinor = lines;
+      this.cubeGroup.add(lines);
+    }
+
+    if (majorPos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(majorPos, 3));
+      geo.setAttribute("aNormal", new THREE.Float32BufferAttribute(majorNrm, 3));
+      const lines = new THREE.LineSegments(geo, makeGridMat(0x1f2a44, 0xcbd5e1, 0.34, 0.08));
+      lines.renderOrder = 0.91;
+      lines.frustumCulled = false;
+      this.gridMajor = lines;
+      this.cubeGroup.add(lines);
+    }
   }
 
   private updateFruitVisuals() {
@@ -382,7 +461,12 @@ export class Renderer {
     }
   }
 
-  update(snakes: SnakeState[], fruits: FruitState[], myPlayerId: string | null) {
+  update(
+    snakes: SnakeState[],
+    fruits: FruitState[],
+    myPlayerId: string | null,
+    playerColors?: Record<string, number>
+  ) {
     const n = this.cubeN;
     const cellW = (this.halfSize * 2) / this.cubeN;
     const segScale = cellW * 0.88;
@@ -391,24 +475,33 @@ export class Renderer {
     let i = 0;
     for (const s of snakes) {
       if (!s.alive) continue;
-      const color = hashColor(s.playerId);
+      const hex = playerColors?.[s.playerId];
+      const color = hex != null ? new THREE.Color(hex) : hashColor(s.playerId);
       for (let idx = 0; idx < s.cells.length; idx++) {
         if (i >= this.snakeCapacity) break;
         const cell = s.cells[idx];
         this.tmpPos.copy(cellToLocalPos(cell, n, this.halfSize));
         const normal = cellNormal(cell, n);
-        this.tmpPos.add(normal.multiplyScalar(lift));
+        this.tmpPos.add(normal.multiplyScalar(lift * 1.1));
         this.tmpQuat.identity();
+        // Outline: slightly bigger cube behind the colored cube.
+        this.tmpScale.set(segScale * 1.08, segScale * 1.08, segScale * 1.08);
+        this.tmpMat2.compose(this.tmpPos, this.tmpQuat, this.tmpScale);
+        this.snakeOutlineMesh.setMatrixAt(i, this.tmpMat2);
+
         this.tmpScale.set(segScale, segScale, segScale);
         this.tmpMat.compose(this.tmpPos, this.tmpQuat, this.tmpScale);
         this.snakeMesh.setMatrixAt(i, this.tmpMat);
-        this.snakeMesh.setColorAt(i, idx === 0 ? color.clone().offsetHSL(0, 0, -0.12) : color);
+        // Head slightly darker for readability.
+        this.snakeMesh.setColorAt(i, idx === 0 ? color.clone().multiplyScalar(0.85) : color);
         i++;
       }
     }
     this.snakeMesh.count = i;
     this.snakeMesh.instanceMatrix.needsUpdate = true;
     if (this.snakeMesh.instanceColor) this.snakeMesh.instanceColor.needsUpdate = true;
+    this.snakeOutlineMesh.count = i;
+    this.snakeOutlineMesh.instanceMatrix.needsUpdate = true;
 
     const keep = new Set<string>();
     for (const f of fruits) {
