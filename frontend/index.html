@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Snake</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #ffffff;
+        color: #0b1220;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+      }
+      #app {
+        display: grid;
+        grid-template-columns: 360px 1fr;
+        height: 100%;
+      }
+      #panel {
+        border-right: 1px solid #d8dee9;
+        padding: 16px;
+        overflow: auto;
+        background: #f7f9fc;
+      }
+      #view {
+        position: relative;
+      }
+      canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      .row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      input {
+        width: 100%;
+        padding: 8px;
+        border-radius: 8px;
+        border: 1px solid #c7cfdd;
+        background: #ffffff;
+        color: #0b1220;
+      }
+      button {
+        padding: 8px 10px;
+        border-radius: 8px;
+        border: 1px solid #c7cfdd;
+        background: #ffffff;
+        color: #0b1220;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      pre {
+        margin: 0;
+        padding: 10px;
+        background: #ffffff;
+        border: 1px solid #d8dee9;
+        border-radius: 8px;
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+          monospace;
+        font-size: 12px;
+      }
+      textarea {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 0;
+        padding: 10px;
+        background: #ffffff;
+        border: 1px solid #d8dee9;
+        border-radius: 8px;
+        white-space: pre;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New",
+          monospace;
+        font-size: 12px;
+        resize: vertical;
+      }
+      .small {
+        color: #40516b;
+        font-size: 12px;
+      }
+      .k {
+        color: #40516b;
+        font-size: 12px;
+        margin-bottom: 4px;
+      }
+      .section {
+        margin: 14px 0;
+      }
+      .section h3 {
+        font-size: 13px;
+        margin: 0 0 8px 0;
+        color: #0b1220;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="panel">
+        <div class="section">
+          <h3>Connection</h3>
+          <div class="k">Backend URL</div>
+          <input id="backendUrl" />
+          <div style="height: 8px"></div>
+          <div class="k">Name</div>
+          <input id="name" value="Player" />
+          <div style="height: 8px"></div>
+          <div class="k">Room ID (optional)</div>
+          <div class="row" style="gap: 8px; flex-wrap: nowrap">
+            <input id="roomId" placeholder="ABC123" />
+            <button id="copyRoom" style="white-space: nowrap">Copy room</button>
+          </div>
+          <div style="height: 10px"></div>
+          <div class="row">
+            <button id="connect">Connect</button>
+            <button id="ready" disabled>Ready</button>
+          </div>
+          <div class="small">Tip: open a 2nd tab, paste the same Room ID, then Connect.</div>
+          <div class="small">Controls: Left/Right arrows (or A/D) to turn.</div>
+        </div>
+
+        <div class="section">
+          <h3>Lobby (host)</h3>
+          <div class="k">Cube N</div>
+          <input id="cubeN" value="24" />
+          <div style="height: 8px"></div>
+          <div class="k">Round seconds</div>
+          <input id="roundSeconds" value="180" />
+          <div style="height: 8px"></div>
+          <div class="k">Tick rate</div>
+          <input id="tickRate" value="12" />
+          <div style="height: 10px"></div>
+          <button id="applySettings" disabled>Apply settings (host)</button>
+        </div>
+
+        <div class="section">
+          <h3>Status</h3>
+          <pre id="status">disconnected</pre>
+        </div>
+
+        <div class="section">
+          <h3>Log</h3>
+          <div class="row" style="margin-bottom: 8px">
+            <button id="logPause">Pause</button>
+            <button id="logClear">Clear</button>
+            <button id="logCopy">Copy</button>
+            <button id="logCopyDebug">Copy debug</button>
+          </div>
+          <div class="row" style="margin-bottom: 8px">
+            <label class="small"><input id="logState" type="checkbox" /> log state</label>
+            <label class="small"><input id="logRaw" type="checkbox" /> log raw JSON</label>
+            <label class="small">max lines <input id="logMax" value="300" style="width: 90px" /></label>
+          </div>
+          <textarea id="log" rows="18" readonly></textarea>
+        </div>
+      </div>
+      <div id="view"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
