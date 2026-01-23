@@ -39,6 +39,7 @@ const snakeColorEl = $<HTMLDivElement>("snakeColor");
 const cubeNInput = $<HTMLInputElement>("cubeN");
 const roundSecondsInput = $<HTMLInputElement>("roundSeconds");
 const tickRateInput = $<HTMLInputElement>("tickRate");
+const fruitPerFaceInput = $<HTMLInputElement>("fruitPerFace");
 
 const countdownOverlay = $<HTMLDivElement>("countdownOverlay");
 const countdownText = $<HTMLDivElement>("countdownText");
@@ -147,7 +148,10 @@ function renderLobby() {
     "players:"
   ];
   for (const p of lobby.players) lines.push(`- ${p.name} ${p.ready ? "(ready)" : ""} ${p.playerId === lobby.hostId ? "[host]" : ""}`.trim());
-  lines.push("", `settings: cubeN=${lobby.settings.cubeN} roundSeconds=${lobby.settings.roundSeconds} tickRate=${lobby.settings.tickRate}`);
+  lines.push(
+    "",
+    `settings: cubeN=${lobby.settings.cubeN} roundSeconds=${lobby.settings.roundSeconds} tickRate=${lobby.settings.tickRate} fruitPerFace=${lobby.settings.fruitPerFace}`
+  );
   setStatus(lines.join("\n"));
 }
 
@@ -343,7 +347,8 @@ function wireUI() {
     const cubeN = parseIntSafe(cubeNInput.value, 24);
     const roundSeconds = parseIntSafe(roundSecondsInput.value, 180);
     const tickRate = parseIntSafe(tickRateInput.value, 12);
-    net.sendSettings(cubeN, roundSeconds, tickRate);
+    const fruitPerFace = parseIntSafe(fruitPerFaceInput.value, 1);
+    net.sendSettings(cubeN, roundSeconds, tickRate, fruitPerFace);
   };
 
   forceStartBtn.onclick = () => {
@@ -580,6 +585,7 @@ function syncSettingsUIFromLobby() {
   cubeNInput.value = String(lobby.settings.cubeN);
   roundSecondsInput.value = String(lobby.settings.roundSeconds);
   tickRateInput.value = String(lobby.settings.tickRate);
+  fruitPerFaceInput.value = String(lobby.settings.fruitPerFace);
 }
 
 function syncLobbyControls() {
@@ -596,6 +602,7 @@ function syncLobbyControls() {
   cubeNInput.disabled = !amHost || inRound;
   roundSecondsInput.disabled = !amHost || inRound;
   tickRateInput.disabled = !amHost || inRound;
+  fruitPerFaceInput.disabled = !amHost || inRound;
   applySettingsBtn.disabled = !amHost || inRound;
   applySettingsBtn.classList.toggle("hidden", !amHost);
 }
@@ -714,6 +721,7 @@ function connectToRoom(roomId: string, roomName: string) {
           `cubeN: ${data.settings.cubeN}`,
           `tickRate: ${data.settings.tickRate}`,
           `roundSeconds: ${data.settings.roundSeconds}`,
+          `fruitPerFace: ${data.settings.fruitPerFace}`,
           `fruitTarget: ${data.settings.fruitTarget}`,
           "",
           "waiting for state..."

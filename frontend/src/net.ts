@@ -92,9 +92,9 @@ export class NetClient {
     this.ws!.send(JSON.stringify(m));
   }
 
-  sendSettings(cubeN: number, roundSeconds: number, tickRate: number) {
+  sendSettings(cubeN: number, roundSeconds: number, tickRate: number, fruitPerFace: number) {
     if (!this.isConnected()) return;
-    const m: C2S = { v: 1, type: "set_settings", payload: { cubeN, roundSeconds, tickRate } };
+    const m: C2S = { v: 1, type: "set_settings", payload: { cubeN, roundSeconds, tickRate, fruitPerFace } };
     this.ws!.send(JSON.stringify(m));
   }
 

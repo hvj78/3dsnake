@@ -9,13 +9,14 @@ export type GameSettings = {
   roundSeconds: number;
   tickRate: number;
   fruitTarget: number;
+  fruitPerFace: number;
 };
 
 export type LobbyState = {
   roomId: string;
   hostId: string | null;
   players: Array<{ playerId: string; name: string; ready: boolean; color: number }>;
-  settings: { cubeN: number; roundSeconds: number; tickRate: number };
+  settings: { cubeN: number; roundSeconds: number; tickRate: number; fruitPerFace: number };
 };
 
 export type SnakeState = {
@@ -35,7 +36,7 @@ export type FruitState = {
 
 export type C2S =
   | Msg<"join", { name: string; roomId?: string }>
-  | Msg<"set_settings", { cubeN: number; roundSeconds: number; tickRate: number }>
+  | Msg<"set_settings", { cubeN: number; roundSeconds: number; tickRate: number; fruitPerFace: number }>
   | Msg<"set_color", { color: number }>
   | Msg<"ready", { ready: boolean }>
   | Msg<"force_start", {}>

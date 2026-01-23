@@ -273,12 +273,15 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     cube_n = _as_int(payload.get("cubeN"))
                     round_seconds = _as_int(payload.get("roundSeconds"))
                     tick_rate = _as_int(payload.get("tickRate"))
+                    fruit_per_face = _as_int(payload.get("fruitPerFace"))
                     if cube_n is not None:
                         room.settings.cube_n = max(8, min(80, cube_n))
                     if round_seconds is not None:
                         room.settings.round_seconds = max(30, min(60 * 30, round_seconds))
                     if tick_rate is not None:
                         room.settings.tick_rate = max(5, min(30, tick_rate))
+                    if fruit_per_face is not None:
+                        room.settings.fruit_per_face = max(1, min(8, fruit_per_face))
                 await room.broadcast(msg("lobby_state", {"lobby": room.lobby_state()}))
                 continue
 

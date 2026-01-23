@@ -29,6 +29,7 @@ class RoomSettings:
     cube_n: int = 24
     round_seconds: int = 180
     tick_rate: int = 12
+    fruit_per_face: int = 1
 
 
 class Room:
@@ -54,6 +55,7 @@ class Room:
                 "cubeN": self.settings.cube_n,
                 "roundSeconds": self.settings.round_seconds,
                 "tickRate": self.settings.tick_rate,
+                "fruitPerFace": self.settings.fruit_per_face,
             },
         }
 
@@ -94,7 +96,8 @@ class Room:
                     return
                 starting_players = list(self.players.keys())
 
-            fruit_target = len(starting_players)
+            fruit_per_face = max(1, min(8, int(self.settings.fruit_per_face)))
+            fruit_target = fruit_per_face * 6
             seed = random.randrange(1 << 31)
             rng = random.Random(seed)
 
@@ -141,6 +144,7 @@ class Room:
                         "roundSeconds": settings.round_seconds,
                         "tickRate": settings.tick_rate,
                         "fruitTarget": settings.fruit_target,
+                        "fruitPerFace": fruit_per_face,
                     },
                     "seed": seed,
                     "startTick": 0,
