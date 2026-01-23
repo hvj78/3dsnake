@@ -36,7 +36,9 @@ export type FruitState = {
 export type C2S =
   | Msg<"join", { name: string; roomId?: string }>
   | Msg<"set_settings", { cubeN: number; roundSeconds: number; tickRate: number }>
+  | Msg<"set_color", { color: number }>
   | Msg<"ready", { ready: boolean }>
+  | Msg<"force_start", {}>
   | Msg<"input", { inputs: Array<{ tick: number; dir?: Dir; turn?: Turn }> }>
   | Msg<"leave", {}>
   | Msg<"ping", { clientTimeMs: number }>;

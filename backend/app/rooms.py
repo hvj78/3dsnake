@@ -76,7 +76,7 @@ class Room:
                 if self.host_id == pid:
                     self.host_id = next(iter(self.players.keys()), None)
 
-    async def maybe_start(self) -> None:
+    async def maybe_start(self, *, force: bool = False) -> None:
         start_msg = None
         async with self.lock:
             if self.phase != "lobby":
@@ -85,15 +85,21 @@ class Room:
                 return
             if not self.players:
                 return
-            if not all(p.ready for p in self.players.values()):
-                return
+            if force:
+                starting_players = [pid for pid, p in self.players.items() if p.ready]
+                if not starting_players:
+                    return
+            else:
+                if not all(p.ready for p in self.players.values()):
+                    return
+                starting_players = list(self.players.keys())
 
-            starting_players = list(self.players.keys())
             fruit_target = len(starting_players)
             seed = random.randrange(1 << 31)
             rng = random.Random(seed)
 
-            start_time = now_ms() + 500
+            # Give clients time for a 3-2-1-START countdown.
+            start_time = now_ms() + 3500
             ends_at = start_time + self.settings.round_seconds * 1000
             settings = GameSettings(
                 cube_n=self.settings.cube_n,
@@ -141,7 +147,10 @@ class Room:
                     "startServerTimeMs": start_time,
                     "players": [
                         {"playerId": p.player_id, "name": p.name, "color": p.color}
-                        for p in sorted(self.players.values(), key=lambda x: x.player_id)
+                        for p in sorted(
+                            (self.players[pid] for pid in starting_players),
+                            key=lambda x: x.player_id,
+                        )
                     ],
                 },
             }
@@ -232,6 +241,19 @@ class Room:
             if msg_to_send is not None:
                 await self.broadcast(msg_to_send)
             if msg_to_send is not None and msg_to_send.get("type") == "end":
+                # Return to lobby for a new round and allow joins again.
+                async with self.lock:
+                    self.phase = "lobby"
+                    self.game = None
+                    self.task = None
+                    for p in self.players.values():
+                        p.ready = False
+                        p.input_by_tick.clear()
+                        p.last_ack_tick = -1
+                try:
+                    await self.broadcast({"v": 1, "type": "lobby_state", "payload": {"lobby": self.lobby_state()}})
+                except Exception:
+                    pass
                 return
 
 
@@ -242,16 +264,16 @@ class RoomManager:
 
     @staticmethod
     def _palette() -> list[int]:
-        # 8 distinct snake colors (0xRRGGBB).
+        # 8 distinct snake colors (0xRRGGBB), matching the frontend swatches.
         return [
-            0x16A34A,  # green
-            0xDC2626,  # red
-            0x2563EB,  # blue
-            0xF59E0B,  # orange
-            0x7C3AED,  # purple
             0xDB2777,  # magenta
-            0x0D9488,  # teal
-            0x334155,  # slate/gray
+            0xEF4444,  # red
+            0xF97316,  # orange
+            0xFACC15,  # yellow
+            0x22C55E,  # green
+            0x06B6D4,  # cyan
+            0x3B82F6,  # blue
+            0x8B5CF6,  # violet
         ]
 
     @classmethod
@@ -272,6 +294,10 @@ class RoomManager:
                 self.rooms[rid] = room
 
         async with room.lock:
+            if room.phase != "lobby":
+                raise RuntimeError("room_in_progress")
+            if len(room.players) >= 8:
+                raise RuntimeError("room_full")
             pid = new_player_id()
             color = self._first_free_color(room)
             player = PlayerConn(player_id=pid, name=name, ws=ws, color=color)

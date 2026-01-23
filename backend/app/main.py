@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,30 @@ from app.util.time import now_ms
 
 app = FastAPI()
 rooms = RoomManager()
+
+# Allow local dev frontend (Vite) to call HTTP endpoints like `/rooms`.
+# WebSockets are not governed by CORS in the same way, but browsers will
+# block cross-origin `fetch` without CORS headers.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+ROOMS = [
+    {"roomId": "COBRA", "name": "Cobra"},
+    {"roomId": "PYTHON", "name": "Python"},
+    {"roomId": "ANACONDA", "name": "Anaconda"},
+    {"roomId": "VIPER", "name": "Viper"},
+    {"roomId": "MAMBA", "name": "Mamba"},
+    {"roomId": "BOA", "name": "Boa"},
+    {"roomId": "RATTLESNAKE", "name": "Rattlesnake"},
+    {"roomId": "TAIPAN", "name": "Taipan"},
+]
+ROOM_ID_SET = {r["roomId"] for r in ROOMS}
+ROOM_CAPACITY = 8
 
 _ROOT = Path(__file__).resolve().parents[2]
 _FRONTEND_DIST = _ROOT / "frontend" / "dist"
@@ -34,6 +59,45 @@ def _as_int(v: Any) -> Optional[int]:
 @app.get("/healthz")
 def healthz() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/rooms")
+async def list_rooms() -> dict:
+    out = []
+    async with rooms.lock:
+        snapshot = {rid: room for rid, room in rooms.rooms.items()}
+
+    for r in ROOMS:
+        rid = r["roomId"]
+        room = snapshot.get(rid)
+        if room is None:
+            out.append(
+                {
+                    "roomId": rid,
+                    "name": r["name"],
+                    "capacity": ROOM_CAPACITY,
+                    "count": 0,
+                    "players": [],
+                    "phase": "lobby",
+                    "joinable": True,
+                }
+            )
+            continue
+        async with room.lock:
+            players = [p.name for p in room.players.values()]
+            phase = room.phase
+        out.append(
+            {
+                "roomId": rid,
+                "name": r["name"],
+                "capacity": ROOM_CAPACITY,
+                "count": len(players),
+                "players": players,
+                "phase": phase,
+                "joinable": (phase == "lobby" and len(players) < ROOM_CAPACITY),
+            }
+        )
+    return {"rooms": out}
 
 
 def _backend_index_html() -> HTMLResponse:
@@ -61,12 +125,13 @@ def _backend_index_html() -> HTMLResponse:
 
     <div class="row">
       <label>Name <input id="name" value="Player" /></label>
-      <label>Room ID (optional) <input id="roomId" placeholder="ABC123" /></label>
+      <label>Room ID <input id="roomId" value="COBRA" /></label>
       <button id="connect">Connect</button>
       <button id="ready" disabled>Ready</button>
     </div>
 
     <p><small>Tip: open this page in multiple tabs to simulate multiple players.</small></p>
+    <p><small>Allowed rooms are exposed at <code>/rooms</code>. Joining a room in-progress is not allowed.</small></p>
 
     <h3>Log</h3>
     <div id="log"></div>
@@ -89,9 +154,8 @@ def _backend_index_html() -> HTMLResponse:
           ready = false;
           $("ready").disabled = false;
           $("ready").textContent = "Ready";
-          const payload = { name: $("name").value || "Player" };
           const roomId = $("roomId").value.trim();
-          if (roomId) payload.roomId = roomId;
+          const payload = { name: $("name").value || "Player", roomId };
           ws.send(JSON.stringify({ v: 1, type: "join", payload }));
         };
 
@@ -146,12 +210,38 @@ async def ws_endpoint(ws: WebSocket) -> None:
             return
 
         payload = join_raw.get("payload") or {}
-        name = str(payload.get("name") or "Player")
+        name = str(payload.get("name") or "").strip()
+        if not name:
+            await ws.send_json(msg("error", {"code": "missing_name", "message": "name is required"}))
+            await ws.close()
+            return
         room_id = payload.get("roomId")
         if room_id is not None:
             room_id = str(room_id)
+        if room_id not in ROOM_ID_SET:
+            await ws.send_json(
+                msg(
+                    "error",
+                    {
+                        "code": "unknown_room",
+                        "message": "unknown roomId (use /rooms to discover allowed rooms)",
+                    },
+                )
+            )
+            await ws.close()
+            return
 
-        room, player, is_host = await rooms.join(room_id=room_id, name=name, ws=ws)
+        try:
+            room, player, is_host = await rooms.join(room_id=room_id, name=name, ws=ws)
+        except Exception as e:
+            code = "room_full"
+            message = "room is full"
+            if str(e) == "room_in_progress":
+                code = "room_in_progress"
+                message = "room is in progress; wait for the next round"
+            await ws.send_json(msg("error", {"code": code, "message": message}))
+            await ws.close()
+            return
 
         await ws.send_json(msg("joined", {"playerId": player.player_id, "roomId": room.room_id, "isHost": is_host, "lobby": room.lobby_state()}))
         await room.broadcast(msg("lobby_state", {"lobby": room.lobby_state()}))
@@ -216,6 +306,20 @@ async def ws_endpoint(ws: WebSocket) -> None:
                     room.players[player.player_id].ready = ready
                 await room.broadcast(msg("lobby_state", {"lobby": room.lobby_state()}))
                 await room.maybe_start()
+                continue
+
+            if mtype == "force_start":
+                async with room.lock:
+                    if room.phase != "lobby":
+                        continue
+                    if room.host_id != player.player_id:
+                        continue
+                    if not room.players[player.player_id].ready:
+                        await ws.send_json(
+                            msg("error", {"code": "host_not_ready", "message": "Host must be Ready to force start"})
+                        )
+                        continue
+                await room.maybe_start(force=True)
                 continue
 
             if mtype == "input":

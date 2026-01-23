@@ -150,13 +150,17 @@ export class Renderer {
   private cubeTint = new THREE.Color(0x8ea2ff);
   private cubeOpacity = 0.10;
   private tmpColor = new THREE.Color();
+  private tmpColor2 = new THREE.Color();
   private followFace: Face | null = null;
 
   private tmpMat = new THREE.Matrix4();
   private tmpMat2 = new THREE.Matrix4();
   private tmpPos = new THREE.Vector3();
+  private tmpWorld = new THREE.Vector3();
   private tmpQuat = new THREE.Quaternion();
   private tmpScale = new THREE.Vector3();
+  private tmpNormal = new THREE.Vector3();
+  private tmpToCam = new THREE.Vector3();
 
   private targetQuat = new THREE.Quaternion();
 
@@ -472,6 +476,13 @@ export class Renderer {
     const segScale = cellW * 0.88;
     const lift = cellW * 0.18;
 
+    const camPos = this.camera.position;
+    const cubeQ = this.cubeGroup.quaternion;
+    const camDist = camPos.length ? camPos.length() : 3.2;
+    const uNear = Math.max(0.1, camDist - this.halfSize * 1.2);
+    const uFar = camDist + this.halfSize * 2.8;
+    const fadeTarget = this.tmpColor2.copy(this.cubeTint).lerp(this.tmpColor.set(0xffffff), 0.7);
+
     let i = 0;
     for (const s of snakes) {
       if (!s.alive) continue;
@@ -481,8 +492,8 @@ export class Renderer {
         if (i >= this.snakeCapacity) break;
         const cell = s.cells[idx];
         this.tmpPos.copy(cellToLocalPos(cell, n, this.halfSize));
-        const normal = cellNormal(cell, n);
-        this.tmpPos.add(normal.multiplyScalar(lift * 1.1));
+        const normalLocal = cellNormal(cell, n);
+        this.tmpPos.add(normalLocal.multiplyScalar(lift * 1.1));
         this.tmpQuat.identity();
         // Outline: slightly bigger cube behind the colored cube.
         this.tmpScale.set(segScale * 1.08, segScale * 1.08, segScale * 1.08);
@@ -492,8 +503,22 @@ export class Renderer {
         this.tmpScale.set(segScale, segScale, segScale);
         this.tmpMat.compose(this.tmpPos, this.tmpQuat, this.tmpScale);
         this.snakeMesh.setMatrixAt(i, this.tmpMat);
-        // Head slightly darker for readability.
-        this.snakeMesh.setColorAt(i, idx === 0 ? color.clone().multiplyScalar(0.85) : color);
+
+        // Fade snakes when seen through the cube (back faces) and with distance.
+        // Compute world-space distance and facing using the face normal.
+        this.tmpWorld.copy(this.tmpPos).applyQuaternion(cubeQ);
+        const dist = camPos.distanceTo(this.tmpWorld);
+        const tDist = smoothstep(uNear, uFar, dist);
+        this.tmpNormal.copy(normalLocal).applyQuaternion(cubeQ).normalize();
+        this.tmpToCam.copy(camPos).sub(this.tmpWorld).normalize();
+        const facing = this.tmpNormal.dot(this.tmpToCam); // >0: front-facing
+        const through = smoothstep(0.25, -0.25, facing); // 0 front, 1 back
+        const lighten = clamp01(through * 0.55 + tDist * 0.18);
+
+        this.tmpColor.copy(color);
+        if (idx === 0) this.tmpColor.multiplyScalar(0.85); // head darker
+        this.tmpColor.lerp(fadeTarget, lighten);
+        this.snakeMesh.setColorAt(i, this.tmpColor);
         i++;
       }
     }

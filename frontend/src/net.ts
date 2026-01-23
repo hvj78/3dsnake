@@ -9,6 +9,7 @@ export type NetEvents = {
   onError: (data: Extract<S2C, { type: "error" }>["payload"]) => void;
   onLog: (line: string) => void;
   onAnyMessage?: (msg: S2C, raw: string) => void;
+  onClose?: () => void;
 };
 
 export class NetClient {
@@ -65,12 +66,24 @@ export class NetClient {
     this.ws.onclose = () => {
       this.connected = false;
       events.onLog("socket closed");
+      events.onClose?.();
     };
     this.ws.onerror = () => events.onLog("socket error");
   }
 
   isConnected() {
     return this.connected && this.ws?.readyState === WebSocket.OPEN;
+  }
+
+  close() {
+    try {
+      this.ws?.close();
+    } catch {
+      // ignore
+    } finally {
+      this.ws = null;
+      this.connected = false;
+    }
   }
 
   sendReady(ready: boolean) {
@@ -87,7 +100,13 @@ export class NetClient {
 
   sendColor(color: number) {
     if (!this.isConnected()) return;
-    const m = { v: 1, type: "set_color", payload: { color } };
+    const m: C2S = { v: 1, type: "set_color", payload: { color } };
+    this.ws!.send(JSON.stringify(m));
+  }
+
+  sendForceStart() {
+    if (!this.isConnected()) return;
+    const m: C2S = { v: 1, type: "force_start", payload: {} };
     this.ws!.send(JSON.stringify(m));
   }
 

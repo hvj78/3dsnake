@@ -16,6 +16,9 @@
         color: #0b1220;
         font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
       }
+      .hidden {
+        display: none !important;
+      }
       #app {
         display: grid;
         grid-template-columns: 360px 1fr;
@@ -139,50 +142,265 @@
         text-transform: uppercase;
         letter-spacing: 0.08em;
       }
+
+      /* Login / lobby overlay */
+      #loginOverlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        background: radial-gradient(1200px 700px at 50% 25%, rgba(142, 162, 255, 0.18), transparent 60%),
+          radial-gradient(900px 500px at 50% 70%, rgba(16, 185, 129, 0.12), transparent 60%), #ffffff;
+        z-index: 50;
+      }
+      .loginCard {
+        width: min(760px, calc(100vw - 48px));
+        border-radius: 18px;
+        border: 1px solid #d8dee9;
+        background: rgba(255, 255, 255, 0.88);
+        box-shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+        padding: 26px 26px 22px 26px;
+        backdrop-filter: blur(6px);
+      }
+      .title3d {
+        font-size: 56px;
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        margin: 0;
+        text-align: center;
+        color: #1e293b;
+        text-shadow:
+          0 1px 0 #ffffff,
+          0 2px 0 #e5e7eb,
+          0 3px 0 #cbd5e1,
+          0 4px 0 #94a3b8,
+          0 9px 18px rgba(15, 23, 42, 0.18);
+      }
+      .subtitle {
+        text-align: center;
+        margin-top: 6px;
+        margin-bottom: 22px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #475569;
+      }
+      .rooms {
+        display: grid;
+        gap: 10px;
+        margin-top: 12px;
+      }
+      .roomRow {
+        display: grid;
+        grid-template-columns: 220px 1fr;
+        gap: 12px;
+        align-items: center;
+      }
+      .roomBtn {
+        text-align: left;
+        font-weight: 700;
+        padding: 10px 12px;
+        border-radius: 12px;
+        border: 1px solid #c7cfdd;
+        background: #ffffff;
+        cursor: pointer;
+      }
+      .roomBtn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .roomUsers {
+        font-size: 13px;
+        color: #334155;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .hint {
+        margin-top: 6px;
+        color: #475569;
+        font-size: 12px;
+      }
+      .loginFooter {
+        margin-top: 14px;
+        color: #64748b;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .roomHeader {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 10px;
+        margin-bottom: 8px;
+      }
+      .roomTitle {
+        font-weight: 800;
+        font-size: 16px;
+        color: #0b1220;
+      }
+      .ghostBtn {
+        border: 1px solid #d8dee9;
+        background: rgba(255, 255, 255, 0.7);
+      }
+      .subhead {
+        margin-top: 12px;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        color: #475569;
+        text-transform: uppercase;
+      }
+      .playersList {
+        margin-top: 10px;
+        border: 1px solid #d8dee9;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.75);
+        overflow: hidden;
+      }
+      .playerRow {
+        display: grid;
+        grid-template-columns: 18px 1fr 110px;
+        gap: 10px;
+        align-items: center;
+        padding: 10px 12px;
+        border-top: 1px solid #eef2f7;
+        font-size: 13px;
+      }
+      .playerRow:first-child {
+        border-top: none;
+      }
+      .playerName {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: #0b1220;
+        font-weight: 650;
+      }
+      .playerMeta {
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+        align-items: center;
+        color: #334155;
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .pill {
+        padding: 4px 8px;
+        border-radius: 999px;
+        border: 1px solid #d8dee9;
+        background: rgba(255, 255, 255, 0.65);
+      }
+
+      #countdownOverlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        z-index: 80;
+        pointer-events: none;
+        background: rgba(255, 255, 255, 0.55);
+        backdrop-filter: blur(6px);
+      }
+      #countdownOverlay.hidden {
+        display: none !important;
+      }
+      .countdownText {
+        font-size: min(20vw, 140px);
+        font-weight: 950;
+        letter-spacing: 0.02em;
+        color: #0b1220;
+        text-shadow:
+          0 1px 0 rgba(255,255,255,0.8),
+          0 12px 30px rgba(15, 23, 42, 0.18);
+        transform-origin: center;
+        animation: pop 0.95s ease-in-out infinite;
+      }
+      .countdownText.start {
+        color: #16a34a;
+        animation: startFlash 0.9s ease-in-out infinite;
+      }
+      @keyframes pop {
+        0% { transform: scale(0.85); opacity: 0.1; filter: blur(2px); }
+        22% { transform: scale(1.06); opacity: 1; filter: blur(0px); }
+        55% { transform: scale(1.0); opacity: 0.95; }
+        100% { transform: scale(0.94); opacity: 0.15; filter: blur(1px); }
+      }
+      @keyframes startFlash {
+        0% { transform: scale(0.88); opacity: 0.6; }
+        25% { transform: scale(1.08); opacity: 1; }
+        65% { transform: scale(1.02); opacity: 0.95; }
+        100% { transform: scale(0.96); opacity: 0.55; }
+      }
     </style>
   </head>
   <body>
-    <div id="app">
-      <div id="panel">
-        <div class="section">
-          <h3>Connection</h3>
-          <div class="k">Backend URL</div>
-          <input id="backendUrl" />
-          <div style="height: 8px"></div>
+    <div id="loginOverlay">
+      <div class="loginCard">
+        <h1 class="title3d">3D Snake</h1>
+        <div class="subtitle">by HVJ &amp; NTZ &amp; GPT</div>
+
+        <div id="nameBlock">
           <div class="k">Name</div>
-          <input id="name" value="Player" />
-          <div style="height: 8px"></div>
-          <div class="k">Room ID (optional)</div>
-          <div class="row" style="gap: 8px; flex-wrap: nowrap">
-            <input id="roomId" placeholder="ABC123" />
-            <button id="copyRoom" style="white-space: nowrap">Copy room</button>
+          <input id="loginName" value="" placeholder="Your name" />
+        </div>
+
+        <div id="roomSelect">
+          <div class="hint">click on one of the snakes to join a game:</div>
+          <div id="roomList" class="rooms"></div>
+          <div id="loginStatus" class="loginFooter"></div>
+        </div>
+
+        <div id="roomLobby" class="hidden">
+          <div class="roomHeader">
+            <div class="roomTitle" id="roomTitle">Room</div>
+            <button id="leaveRoom" class="ghostBtn">Change room</button>
           </div>
-          <div style="height: 8px"></div>
-          <div class="k">Snake color</div>
-          <div id="snakeColor" class="swatches" aria-label="Snake color"></div>
-          <div style="height: 10px"></div>
+
+          <div class="subhead">Select your color</div>
+          <div id="snakeColor" class="swatches" style="margin-top: 10px"></div>
+
+          <div class="subhead">Players</div>
+          <div id="playersList" class="playersList"></div>
+
+          <div class="row" style="margin-top: 12px; align-items: center; justify-content: space-between">
+            <button id="ready" style="min-width: 140px">Ready</button>
+            <button id="forceStart" class="ghostBtn hidden" style="min-width: 140px">Force start</button>
+          </div>
+
+          <div class="subhead">Settings <span id="settingsNote" class="small" style="text-transform:none; letter-spacing:0; font-weight:600"></span></div>
+          <div class="row" style="margin-top: 8px">
+            <div style="flex: 1; min-width: 100px">
+              <div class="k">Cube size</div>
+              <input id="cubeN" value="24" />
+            </div>
+            <div style="flex: 1; min-width: 120px">
+              <div class="k">Round seconds</div>
+              <input id="roundSeconds" value="180" />
+            </div>
+            <div style="flex: 1; min-width: 100px">
+              <div class="k">Tick rate</div>
+              <input id="tickRate" value="12" />
+            </div>
+          </div>
           <div class="row">
-            <button id="connect">Connect</button>
-            <button id="ready" disabled>Ready</button>
+            <button id="applySettings" class="ghostBtn" style="width: 100%">Apply settings (host)</button>
           </div>
-          <div class="small">Tip: open a 2nd tab, paste the same Room ID, then Connect.</div>
-          <div class="small">Controls: WASD or Arrow keys (up/down/left/right).</div>
+          <div id="lobbyNote" class="loginFooter"></div>
         </div>
+      </div>
+    </div>
 
-        <div class="section">
-          <h3>Lobby (host)</h3>
-          <div class="k">Cube N</div>
-          <input id="cubeN" value="24" />
-          <div style="height: 8px"></div>
-          <div class="k">Round seconds</div>
-          <input id="roundSeconds" value="180" />
-          <div style="height: 8px"></div>
-          <div class="k">Tick rate</div>
-          <input id="tickRate" value="12" />
-          <div style="height: 10px"></div>
-          <button id="applySettings" disabled>Apply settings (host)</button>
-        </div>
+    <div id="countdownOverlay" class="hidden">
+      <div id="countdownText" class="countdownText">3</div>
+    </div>
 
+    <div id="app" class="hidden">
+      <div id="panel">
         <div class="section">
           <h3>Status</h3>
           <pre id="status">disconnected</pre>
