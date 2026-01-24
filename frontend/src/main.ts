@@ -2,6 +2,7 @@ import { NetClient } from "./net";
 import type { Dir, LobbyState } from "./protocol";
 import { Renderer } from "./render";
 import type { S2C } from "./protocol";
+import { Sfx } from "./sfx";
 
 type RoomInfo = {
   roomId: string;
@@ -44,6 +45,11 @@ const fruitPerFaceInput = $<HTMLInputElement>("fruitPerFace");
 const countdownOverlay = $<HTMLDivElement>("countdownOverlay");
 const countdownText = $<HTMLDivElement>("countdownText");
 
+const introOverlay = $<HTMLDivElement>("introOverlay");
+const introVideo = $<HTMLVideoElement>("introVideo");
+const introSkipBtn = $<HTMLButtonElement>("introSkip");
+const introTapToPlayBtn = $<HTMLButtonElement>("introTapToPlay");
+
 let logPaused = false;
 let logStateEnabled = false;
 let logRawEnabled = false;
@@ -75,6 +81,7 @@ async function copyToClipboard(text: string) {
 }
 
 const net = new NetClient();
+const sfx = new Sfx();
 let renderer: Renderer | null = null;
 
 let myPlayerId: string | null = null;
@@ -99,6 +106,22 @@ let currentRoomName: string | null = null;
 let inRound = false;
 let playingThisRound = false;
 let populateColorOptionsFn: (() => void) | null = null;
+let audioActive = false;
+let prevFruitIds = new Set<string>();
+let prevSnakeInfo = new Map<string, { alive: boolean; len: number }>();
+
+function tryEnableAudio() {
+  // Browsers require a user gesture; we'll call this from clicks/keys.
+  sfx.resume();
+}
+
+const INTRO_VIDEO_PATH = "assets/video/intro.mp4";
+
+function introVideoUrl() {
+  let base = import.meta.env.BASE_URL || "/";
+  if (!base.endsWith("/")) base += "/";
+  return `${base}${INTRO_VIDEO_PATH}`;
+}
 
 const PALETTE_8: number[] = [
   0xdb2777, // magenta
@@ -167,7 +190,12 @@ function defaultWsUrl() {
 
 function ensureRenderer() {
   if (renderer) return renderer;
-  renderer = new Renderer(view);
+  renderer = new Renderer(view, {
+    onFaceChange: () => {
+      if (!audioActive) return;
+      sfx.playRotate();
+    }
+  });
   return renderer;
 }
 
@@ -193,10 +221,16 @@ function showRoomLobby() {
 function showGame() {
   loginOverlay.classList.add("hidden");
   appEl.classList.remove("hidden");
+  audioActive = true;
+  if (lastState) {
+    prevFruitIds = new Set<string>(lastState.fruits.map((f) => f.id));
+    prevSnakeInfo = new Map(lastState.snakes.map((s) => [s.playerId, { alive: s.alive, len: s.cells.length }]));
+  }
 }
 
 function hideGame() {
   appEl.classList.add("hidden");
+  audioActive = false;
 }
 
 function showCountdown() {
@@ -217,6 +251,9 @@ function resetClientState() {
   ready = false;
   inRound = false;
   playingThisRound = false;
+  audioActive = false;
+  prevFruitIds = new Set<string>();
+  prevSnakeInfo = new Map();
   lastServerTick = -1;
   nextInputTick = 0;
   desiredDir = null;
@@ -329,6 +366,7 @@ function wireUI() {
   };
 
   readyBtn.onclick = () => {
+    tryEnableAudio();
     ready = !ready;
     readyBtn.textContent = ready ? "Unready" : "Ready";
     net.sendReady(ready);
@@ -336,6 +374,7 @@ function wireUI() {
   };
 
   leaveRoomBtn.onclick = () => {
+    tryEnableAudio();
     net.close();
     resetClientState();
     showRoomSelect();
@@ -344,6 +383,7 @@ function wireUI() {
   };
 
   applySettingsBtn.onclick = () => {
+    tryEnableAudio();
     const cubeN = parseIntSafe(cubeNInput.value, 24);
     const roundSeconds = parseIntSafe(roundSecondsInput.value, 180);
     const tickRate = parseIntSafe(tickRateInput.value, 12);
@@ -352,6 +392,7 @@ function wireUI() {
   };
 
   forceStartBtn.onclick = () => {
+    tryEnableAudio();
     if (!isHost) return;
     lobbyNoteEl.textContent = "Force starting… (unready players will be skipped)";
     net.sendForceStart();
@@ -618,6 +659,7 @@ function refreshRoomLobbyUI() {
 }
 
 function connectToRoom(roomId: string, roomName: string) {
+  tryEnableAudio();
   const name = loginName.value.trim();
   if (!name) {
     setLoginError("Please enter a name first.");
@@ -734,6 +776,43 @@ function connectToRoom(roomId: string, roomName: string) {
       lastState = data;
       if (renderer) renderer.update(data.snakes, data.fruits, myPlayerId, playerColors);
 
+      // Hurt/death sounds from snake state transitions.
+      if (audioActive) {
+        const curSnakes = new Map<string, { alive: boolean; len: number }>();
+        for (const s of data.snakes) {
+          const info = { alive: s.alive, len: s.cells.length };
+          curSnakes.set(s.playerId, info);
+          const prev = prevSnakeInfo.get(s.playerId);
+          if (!prev) continue;
+
+          // "Hurt" = length cut while still alive.
+          if (prev.alive && info.alive && info.len < prev.len) {
+            const loss = prev.len - info.len;
+            const level = s.playerId === myPlayerId ? 1 : 0.45;
+            sfx.playHurt(loss, level);
+          }
+
+          // "Die" = alive -> dead transition.
+          if (prev.alive && !info.alive) {
+            const level = s.playerId === myPlayerId ? 1 : 0.6;
+            sfx.playDie(level);
+          }
+        }
+        prevSnakeInfo = curSnakes;
+      } else {
+        prevSnakeInfo = new Map(data.snakes.map((s) => [s.playerId, { alive: s.alive, len: s.cells.length }]));
+      }
+
+      // Fruit-eat sound: play when a fruit disappears between ticks.
+      const cur = new Set<string>();
+      for (const f of data.fruits) cur.add(f.id);
+      if (audioActive) {
+        let removed = 0;
+        for (const id of prevFruitIds) if (!cur.has(id)) removed++;
+        if (removed > 0) sfx.playEat(removed);
+      }
+      prevFruitIds = cur;
+
       const scores = Object.entries(data.scores)
         .sort((a, b) => b[1] - a[1])
         .map(([pid, sc]) => {
@@ -808,13 +887,135 @@ function startInputLoop() {
   requestAnimationFrame(loop);
 }
 
-wireUI();
-wireInput();
-setStatus("disconnected");
-appendLog("log ready (use Pause / Copy debug if needed)");
+function bootApp() {
+  wireUI();
+  wireInput();
+  setStatus("disconnected");
+  appendLog("log ready (use Pause / Copy debug if needed)");
 
-// Lobby boot
-loginName.value = (localStorage.getItem("snakeName") || "").trim();
-resetClientState();
-showRoomSelect();
-startRoomsPolling();
+  // Lobby boot
+  loginName.value = (localStorage.getItem("snakeName") || "").trim();
+  resetClientState();
+  showRoomSelect();
+  startRoomsPolling();
+
+  // Attempt to enable audio once a user interacts.
+  window.addEventListener("pointerdown", tryEnableAudio, { capture: true });
+  window.addEventListener("keydown", tryEnableAudio, { capture: true });
+}
+
+function playIntroVideo(): Promise<void> {
+  return new Promise((resolve) => {
+    let finished = false;
+    let overlayPointerHandler: ((ev: PointerEvent) => void) | null = null;
+    // Safety timeout: only to avoid blocking forever on a bad/missing asset.
+    // Cleared as soon as we see any sign of successful loading/playback.
+    const loadTimeoutMs = 60000;
+    const loadTimer = window.setTimeout(() => finish(), loadTimeoutMs);
+    const clearLoadTimer = () => window.clearTimeout(loadTimer);
+
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      clearLoadTimer();
+      if (overlayPointerHandler) introOverlay.removeEventListener("pointerdown", overlayPointerHandler, true);
+      introVideo.pause();
+      introVideo.removeAttribute("src");
+      introVideo.load();
+      introOverlay.classList.add("hidden");
+      introOverlay.setAttribute("aria-hidden", "true");
+      introTapToPlayBtn.classList.add("hidden");
+
+      introSkipBtn.onclick = null;
+      introTapToPlayBtn.onclick = null;
+      introVideo.onloadedmetadata = null;
+      introVideo.oncanplay = null;
+      introVideo.onplay = null;
+      introVideo.onplaying = null;
+      introVideo.ontimeupdate = null;
+      introVideo.onended = null;
+      introVideo.onerror = null;
+      resolve();
+    };
+
+    const enableSound = async () => {
+      tryEnableAudio();
+      introVideo.muted = false;
+      introVideo.volume = 1;
+      try {
+        await introVideo.play();
+      } catch {
+        // ignore
+      }
+      introTapToPlayBtn.classList.add("hidden");
+    };
+
+    const attemptStart = async () => {
+      // Prefer starting with sound. If autoplay-with-sound is blocked (most browsers),
+      // fall back to muted autoplay and show a clear "Enable sound" overlay button.
+      introTapToPlayBtn.textContent = "Enable sound";
+      introVideo.muted = false;
+      introVideo.volume = 1;
+      try {
+        await introVideo.play();
+        return;
+      } catch {
+        // fall through
+      }
+
+      introVideo.muted = true;
+      try {
+        await introVideo.play();
+      } catch {
+        // If even muted autoplay is blocked, wait for a user gesture.
+      }
+      introTapToPlayBtn.classList.remove("hidden");
+    };
+
+    introOverlay.classList.remove("hidden");
+    introOverlay.setAttribute("aria-hidden", "false");
+
+    introSkipBtn.onclick = finish;
+    introTapToPlayBtn.onclick = () => void enableSound();
+
+    // If the intro is running muted, allow any click/tap (except Skip) to enable sound.
+    overlayPointerHandler = (ev: PointerEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t === introSkipBtn) return;
+      if (!introVideo.muted) return;
+      void enableSound();
+    };
+    introOverlay.addEventListener("pointerdown", overlayPointerHandler, true);
+
+    introVideo.onloadedmetadata = clearLoadTimer;
+    introVideo.oncanplay = clearLoadTimer;
+    introVideo.onplay = clearLoadTimer;
+    introVideo.onplaying = () => {
+      clearLoadTimer();
+    };
+    introVideo.ontimeupdate = () => {
+      if (introVideo.currentTime > 0) clearLoadTimer();
+    };
+    introVideo.onended = finish;
+    introVideo.onerror = finish;
+
+    introVideo.playsInline = true;
+    introVideo.autoplay = true;
+    introVideo.preload = "auto";
+    introVideo.src = introVideoUrl();
+    introVideo.currentTime = 0;
+
+    void attemptStart();
+  });
+}
+
+async function start() {
+  // Keep login hidden until the intro has finished (or fails to load).
+  loginOverlay.classList.add("hidden");
+  appEl.classList.add("hidden");
+
+  await playIntroVideo();
+  bootApp();
+}
+
+void start();

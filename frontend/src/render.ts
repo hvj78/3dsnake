@@ -133,6 +133,7 @@ export class Renderer {
   private scene: any;
   private camera: any;
   private cubeGroup: any;
+  private onFaceChange: (() => void) | null = null;
 
   private cubeN = 24;
   private halfSize = 1;
@@ -164,7 +165,8 @@ export class Renderer {
 
   private targetQuat = new THREE.Quaternion();
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, opts?: { onFaceChange?: () => void }) {
+    this.onFaceChange = opts?.onFaceChange ?? null;
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     container.appendChild(this.renderer.domElement);
@@ -565,6 +567,7 @@ export class Renderer {
         const face = faceOfCell(me.cells[0], n) as Face;
         if (this.followFace !== face) {
           this.followFace = face;
+          this.onFaceChange?.();
           this.setFollowFace(face);
         }
       }
